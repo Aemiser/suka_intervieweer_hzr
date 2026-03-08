@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QHBoxLayout, QTabWidget,
 )
-from PySide6.QtCore import Qt
 
 from service.db import DatabaseManager
 from service.schema import SchemaInitializer
@@ -25,49 +24,6 @@ from UI.quiz_panel import QuizPanel
 from UI.components import Theme as T
 
 
-def _seed_knowledge(ks: KnowledgeStore, db):
-    base_dir = Path("knowledge_base")
-    if not base_dir.exists():
-        return
-
-    pos_rows = db.fetchall("SELECT id, name FROM job_position")
-    name_to_id = {name: jid for jid, name in pos_rows}
-    dir_map = {
-        "java_backend": name_to_id.get("Java 后端工程师", 1),
-        "frontend":     name_to_id.get("前端开发工程师", 2),
-        "common":       0,
-    }
-    for sub_dir, job_id in dir_map.items():
-        folder = base_dir / sub_dir
-        if not folder.exists():
-            continue
-        for fpath in folder.glob("*.txt"):
-            existing = db.fetchone(
-                "SELECT id FROM knowledge_chunk WHERE source=? LIMIT 1", (fpath.name,)
-            )
-            if existing:
-                continue
-            try:
-                count = ks.add_file(str(fpath), job_position_id=job_id)
-                print(f"[KnowledgeStore] 导入 {fpath.name} → {count} 块 (job_id={job_id})")
-            except Exception as e:
-                print(f"[KnowledgeStore] 导入失败 {fpath.name}: {e}")
-
-    for job_id in [0, 1, 2]:
-        already = db.fetchone("SELECT id FROM knowledge_chunk WHERE source='题库QA' LIMIT 1")
-        if already:
-            break
-        qa_rows = db.fetchall("SELECT content, answer FROM question_bank")
-        if qa_rows:
-            qa_list = [{"question": q, "answer": a} for q, a in qa_rows]
-            try:
-                count = ks.add_qa_pairs(qa_list, job_position_id=0)
-                print(f"[KnowledgeStore] 题库 Q&A → {count} 块")
-            except Exception as e:
-                print(f"[KnowledgeStore] 题库 Q&A 导入失败: {e}")
-            break
-
-
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
@@ -76,8 +32,8 @@ def main():
     db = DatabaseManager("interview.db")
     SchemaInitializer(db).initialize()
 
+    # 百炼云端知识库，仅做检索，无需本地导入文件
     ks = KnowledgeStore(db)
-    _seed_knowledge(ks, db)
 
     engine = InterviewEngine(db, ks)
 
@@ -103,13 +59,7 @@ def main():
     window = QMainWindow()
     window.setWindowTitle("AI 模拟面试与能力提升平台")
     window.resize(1340, 880)
-
-    # 全局暗色
-    window.setStyleSheet(f"""
-        QMainWindow {{
-            background: {T.BG};
-        }}
-    """)
+    window.setStyleSheet(f"QMainWindow {{ background: {T.BG}; }}")
 
     central = QWidget()
     window.setCentralWidget(central)
@@ -117,40 +67,20 @@ def main():
     root.setContentsMargins(0, 0, 0, 0)
     root.setSpacing(0)
 
-    # ── TabBar 暗夜主题 ───────────────────────────────────────────────────────
     tabs = QTabWidget()
     tabs.setStyleSheet(f"""
-        QTabWidget::pane {{
-            border: none;
-            background: {T.BG};
-        }}
-        QTabBar {{
-            background: {T.SURFACE};
-        }}
+        QTabWidget::pane {{ border: none; background: {T.BG}; }}
+        QTabBar {{ background: {T.SURFACE}; }}
         QTabBar::tab {{
-            background: {T.SURFACE};
-            color: {T.TEXT_DIM};
-            padding: 12px 26px;
-            font-size: 13px;
-            font-weight: 600;
-            font-family: {T.FONT};
-            border: none;
-            border-bottom: 2px solid transparent;
-            min-width: 100px;
+            background: {T.SURFACE}; color: {T.TEXT_DIM};
+            padding: 12px 26px; font-size: 13px; font-weight: 600;
+            font-family: {T.FONT}; border: none;
+            border-bottom: 2px solid transparent; min-width: 100px;
         }}
         QTabBar::tab:selected {{
-            color: {T.NEON};
-            border-bottom: 2px solid {T.NEON};
-            background: {T.BG};
+            color: {T.NEON}; border-bottom: 2px solid {T.NEON}; background: {T.BG};
         }}
-        QTabBar::tab:hover:!selected {{
-            color: {T.TEXT};
-            background: {T.SURFACE2};
-        }}
-        /* 标签栏整体底部线条 */
-        QTabBar::tab:last {{
-            border-right: none;
-        }}
+        QTabBar::tab:hover:!selected {{ color: {T.TEXT}; background: {T.SURFACE2}; }}
     """)
 
     interview_panel = InterviewPanel(db, engine)
@@ -165,12 +95,9 @@ def main():
 
     root.addWidget(tabs)
 
-    # 切换到历史面板时自动刷新
-    def _on_tab_changed(idx: int):
-        if tabs.widget(idx) is history_panel:
-            history_panel._refresh()
-
-    tabs.currentChanged.connect(_on_tab_changed)
+    tabs.currentChanged.connect(
+        lambda idx: history_panel._refresh() if tabs.widget(idx) is history_panel else None
+    )
 
     window.show()
     sys.exit(app.exec())

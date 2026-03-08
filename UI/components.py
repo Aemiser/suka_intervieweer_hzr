@@ -2,33 +2,31 @@
 """
 统一 UI 组件库
 供 AgentPanel、InterviewPanel 等所有面板共用
-包含：色彩系统、气泡组件、流式输出气泡、打字指示器、卡片、按钮工厂等
 """
 
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTextBrowser, QSizePolicy, QGraphicsDropShadowEffect, QWidget,
 )
-from PySide6.QtCore import Qt, Signal, QObject, QTimer, QPropertyAnimation, QEasingCurve, QRect
+from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QColor, QTextCursor, QFont, QLinearGradient, QPainter, QPen, QBrush
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 色彩系统  (全局唯一，所有面板共享)
+# 色彩系统
 # ═══════════════════════════════════════════════════════════════════
 
 class Theme:
-    """暗夜霓虹主题 — 全局色彩常量"""
     BG          = "#0A0A14"
     SURFACE     = "#12121E"
     SURFACE2    = "#1A1A2E"
     SURFACE3    = "#0F1628"
 
-    ACCENT      = "#E94560"   # 玫红
-    NEON        = "#00D4FF"   # 电蓝
-    GREEN       = "#00FF9D"   # 霓虹绿
-    YELLOW      = "#FFD166"   # 暖金
-    PURPLE      = "#B388FF"   # 幻紫
+    ACCENT      = "#E94560"
+    NEON        = "#00D4FF"
+    GREEN       = "#00FF9D"
+    YELLOW      = "#FFD166"
+    PURPLE      = "#B388FF"
 
     TEXT        = "#E8E8F5"
     TEXT_DIM    = "#7070A0"
@@ -40,22 +38,189 @@ class Theme:
     USER_BUBBLE = "#0F2A4A"
     AI_BUBBLE   = "#12121E"
 
-    # 语义色
     SUCCESS     = GREEN
     ERROR       = ACCENT
     WARNING     = YELLOW
     INFO        = NEON
 
-    # 字体
     FONT        = '-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'
     FONT_MONO   = '"JetBrains Mono", "Cascadia Code", "Fira Code", monospace'
 
-    @classmethod
-    def as_dict(cls):
-        return {k: v for k, v in vars(cls).items() if not k.startswith('_') and isinstance(v, str)}
+T = Theme
 
 
-T = Theme  # 简写别名
+# ═══════════════════════════════════════════════════════════════════
+# Markdown → HTML 转换器（支持表格、代码块、加粗等）
+# ═══════════════════════════════════════════════════════════════════
+
+def _md_to_html(text: str) -> str:
+    """
+    将 Markdown 文本转换为带样式的 HTML。
+    重点修复 QTextBrowser 对表格渲染的缺陷。
+    """
+    import re
+
+    lines = text.split("\n")
+    html_lines = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+
+        # ── 表格检测：连续的 | 行 ────────────────────────────────────────────
+        if "|" in line and line.strip().startswith("|"):
+            table_rows = []
+            while i < len(lines) and "|" in lines[i] and lines[i].strip().startswith("|"):
+                table_rows.append(lines[i])
+                i += 1
+
+            # 过滤掉分隔行（---|---）
+            data_rows = [r for r in table_rows if not re.match(r"^\|[\s\-:|]+\|", r)]
+            if not data_rows:
+                continue
+
+            html_lines.append(f"""
+<table style="
+    border-collapse: collapse;
+    width: 100%;
+    margin: 8px 0;
+    font-size: 13px;
+    font-family: {T.FONT};
+">""")
+            for row_idx, row in enumerate(data_rows):
+                cells = [c.strip() for c in row.strip().strip("|").split("|")]
+                tag = "th" if row_idx == 0 else "td"
+                bg  = T.SURFACE3 if row_idx == 0 else (T.SURFACE if row_idx % 2 == 1 else T.SURFACE2)
+                html_lines.append("<tr>")
+                for cell in cells:
+                    cell_html = _inline_md(cell)
+                    html_lines.append(
+                        f'<{tag} style="'
+                        f'border: 1px solid {T.BORDER2};'
+                        f'padding: 6px 10px;'
+                        f'background: {bg};'
+                        f'color: {"" + T.NEON if row_idx == 0 else T.TEXT};'
+                        f'font-weight: {"700" if row_idx == 0 else "400"};'
+                        f'">{cell_html}</{tag}>'
+                    )
+                html_lines.append("</tr>")
+            html_lines.append("</table>")
+            continue
+
+        # ── 代码块 ───────────────────────────────────────────────────────────
+        if line.strip().startswith("```"):
+            code_lines = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                code_lines.append(lines[i].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+                i += 1
+            i += 1  # 跳过结束 ```
+            code_content = "\n".join(code_lines)
+            html_lines.append(
+                f'<pre style="'
+                f'background:{T.SURFACE3};'
+                f'border:1px solid {T.BORDER2};'
+                f'border-radius:6px;'
+                f'padding:10px 12px;'
+                f'margin:6px 0;'
+                f'font-family:{T.FONT_MONO};'
+                f'font-size:12px;'
+                f'color:{T.GREEN};'
+                f'white-space:pre-wrap;'
+                f'word-break:break-all;'
+                f'">{code_content}</pre>'
+            )
+            continue
+
+        # ── 标题 ─────────────────────────────────────────────────────────────
+        m = re.match(r"^(#{1,4})\s+(.*)", line)
+        if m:
+            level = len(m.group(1))
+            size  = {1: "18px", 2: "16px", 3: "14px", 4: "13px"}.get(level, "14px")
+            color = {1: T.NEON, 2: T.NEON, 3: T.TEXT, 4: T.TEXT_DIM}.get(level, T.TEXT)
+            content = _inline_md(m.group(2))
+            html_lines.append(
+                f'<p style="font-size:{size};font-weight:700;color:{color};'
+                f'margin:10px 0 4px 0;">{content}</p>'
+            )
+            i += 1
+            continue
+
+        # ── 无序列表 ─────────────────────────────────────────────────────────
+        if re.match(r"^[\-\*\+]\s+", line):
+            html_lines.append('<ul style="margin:4px 0;padding-left:20px;">')
+            while i < len(lines) and re.match(r"^[\-\*\+]\s+", lines[i]):
+                item = _inline_md(lines[i][2:].strip())
+                html_lines.append(f'<li style="color:{T.TEXT};margin:2px 0;">{item}</li>')
+                i += 1
+            html_lines.append("</ul>")
+            continue
+
+        # ── 有序列表 ─────────────────────────────────────────────────────────
+        if re.match(r"^\d+\.\s+", line):
+            html_lines.append('<ol style="margin:4px 0;padding-left:20px;">')
+            while i < len(lines) and re.match(r"^\d+\.\s+", lines[i]):
+                item = _inline_md(re.sub(r"^\d+\.\s+", "", lines[i]))
+                html_lines.append(f'<li style="color:{T.TEXT};margin:2px 0;">{item}</li>')
+                i += 1
+            html_lines.append("</ol>")
+            continue
+
+        # ── 分割线 ───────────────────────────────────────────────────────────
+        if re.match(r"^[-_\*]{3,}$", line.strip()):
+            html_lines.append(f'<hr style="border:none;border-top:1px solid {T.BORDER2};margin:8px 0;">')
+            i += 1
+            continue
+
+        # ── 空行 ─────────────────────────────────────────────────────────────
+        if not line.strip():
+            html_lines.append('<br>')
+            i += 1
+            continue
+
+        # ── 普通段落 ─────────────────────────────────────────────────────────
+        html_lines.append(
+            f'<p style="color:{T.TEXT};font-size:14px;margin:3px 0;line-height:1.7;">'
+            f'{_inline_md(line)}</p>'
+        )
+        i += 1
+
+    body = "\n".join(html_lines)
+    return f"""
+<html><body style="
+    background: transparent;
+    font-family: {T.FONT};
+    color: {T.TEXT};
+    margin: 0; padding: 0;
+">{body}</body></html>
+"""
+
+
+def _inline_md(text: str) -> str:
+    """处理行内 Markdown：加粗、斜体、行内代码、链接。"""
+    import re
+    # 转义 HTML 特殊字符（先处理，避免后续标签被转义）
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # 行内代码
+    text = re.sub(
+        r"`([^`]+)`",
+        rf'<code style="background:{T.SURFACE3};color:{T.GREEN};'
+        rf'padding:1px 4px;border-radius:3px;font-family:{T.FONT_MONO};font-size:12px;">\1</code>',
+        text,
+    )
+    # 加粗
+    text = re.sub(r"\*\*(.+?)\*\*", rf'<strong style="color:{T.TEXT};">\1</strong>', text)
+    text = re.sub(r"__(.+?)__",     rf'<strong style="color:{T.TEXT};">\1</strong>', text)
+    # 斜体
+    text = re.sub(r"\*(.+?)\*", rf'<em style="color:{T.TEXT_DIM};">\1</em>', text)
+    text = re.sub(r"_(.+?)_",   rf'<em style="color:{T.TEXT_DIM};">\1</em>', text)
+    # 链接
+    text = re.sub(
+        r"\[(.+?)\]\((.+?)\)",
+        rf'<a href="\2" style="color:{T.NEON};">\1</a>',
+        text,
+    )
+    return text
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -63,10 +228,9 @@ T = Theme  # 简写别名
 # ═══════════════════════════════════════════════════════════════════
 
 class StreamSignals(QObject):
-    """跨线程流式输出信号，AgentPanel / InterviewPanel 共用"""
-    chunk_received  = Signal(str)   # 每个文字片段
-    stream_done     = Signal()      # 流结束
-    stream_error    = Signal(str)   # 出错消息
+    chunk_received = Signal(str)
+    stream_done    = Signal()
+    stream_error   = Signal(str)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -74,8 +238,6 @@ class StreamSignals(QObject):
 # ═══════════════════════════════════════════════════════════════════
 
 class TypingIndicator(QFrame):
-    """三点呼吸动画，AI 思考中使用"""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.NoFrame)
@@ -125,68 +287,58 @@ class TypingIndicator(QFrame):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 通用聊天气泡  (Agent + Interview 共用)
+# 通用聊天气泡（修复表格渲染）
 # ═══════════════════════════════════════════════════════════════════
 
 class ChatBubble(QFrame):
-    """
-    统一聊天气泡组件，支持：
-      - role: "user" | "assistant" | "ai" | "system"
-      - Markdown 渲染
-      - 流式 append_chunk()
-      - 自适应高度
-    """
-
-    # 角色配置
     _ROLE_CFG = {
         "user": {
-            "label": "👤  你",
+            "label":       "👤  你",
             "label_color": T.YELLOW,
-            "bg": T.USER_BUBBLE,
-            "border": f"{T.NEON}33",
-            "radius": "18px 18px 4px 18px",
-            "align": "right",
+            "bg":          T.USER_BUBBLE,
+            "border":      f"{T.NEON}33",
+            "radius":      "18px 18px 4px 18px",
+            "align":       "right",
         },
         "assistant": {
-            "label": "🤖  AI 助手",
+            "label":       "🤖  AI 助手",
             "label_color": T.NEON,
-            "bg": T.AI_BUBBLE,
-            "border": T.BORDER2,
-            "radius": "4px 18px 18px 18px",
-            "align": "left",
+            "bg":          T.AI_BUBBLE,
+            "border":      T.BORDER2,
+            "radius":      "4px 18px 18px 18px",
+            "align":       "left",
         },
-        "ai": {  # 别名
-            "label": "🤖  AI 面试官",
+        "ai": {
+            "label":       "🤖  AI 面试官",
             "label_color": T.NEON,
-            "bg": T.AI_BUBBLE,
-            "border": T.BORDER2,
-            "radius": "4px 18px 18px 18px",
-            "align": "left",
+            "bg":          T.AI_BUBBLE,
+            "border":      T.BORDER2,
+            "radius":      "4px 18px 18px 18px",
+            "align":       "left",
         },
         "system": {
-            "label": "",
+            "label":       "",
             "label_color": T.TEXT_DIM,
-            "bg": "transparent",
-            "border": "transparent",
-            "radius": "8px",
-            "align": "center",
+            "bg":          "transparent",
+            "border":      "transparent",
+            "radius":      "8px",
+            "align":       "center",
         },
     }
 
-    def __init__(self, role: str, content: str = "", max_width: int = 520, parent=None):
+    def __init__(self, role: str, content: str = "", max_width: int = 580, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.NoFrame)
-        self._role = role
+        self._role    = role
         self._content = content
         self._max_width = max_width
 
-        cfg = self._ROLE_CFG.get(role, self._ROLE_CFG["assistant"])
-
+        cfg   = self._ROLE_CFG.get(role, self._ROLE_CFG["assistant"])
         outer = QHBoxLayout(self)
         outer.setContentsMargins(6, 3, 6, 3)
         outer.setSpacing(0)
 
-        # system 消息居中显示
+        # system 消息居中
         if role == "system":
             lbl = QLabel(content)
             lbl.setAlignment(Qt.AlignCenter)
@@ -198,7 +350,7 @@ class ChatBubble(QFrame):
             outer.addWidget(lbl)
             return
 
-        # 气泡容器
+        # 气泡框
         self.bubble = QFrame()
         self.bubble.setObjectName("bubble")
         self.bubble.setMaximumWidth(max_width)
@@ -220,8 +372,7 @@ class ChatBubble(QFrame):
             role_lbl.setStyleSheet(f"""
                 font-size: 10px; color: {cfg['label_color']};
                 font-weight: 700; letter-spacing: 1px;
-                background: transparent;
-                font-family: {T.FONT};
+                background: transparent; font-family: {T.FONT};
             """)
             inner.addWidget(role_lbl)
 
@@ -248,25 +399,27 @@ class ChatBubble(QFrame):
         if cfg["align"] == "right":
             outer.addStretch(2)
             outer.addWidget(self.bubble, stretch=8)
-        elif cfg["align"] == "left":
+        else:
             outer.addWidget(self.bubble, stretch=8)
             outer.addStretch(2)
-        else:
-            outer.addWidget(self.bubble)
 
-        # 初始内容
         if content:
             self._set_content(content)
 
     def _set_content(self, text: str):
         self._content = text
-        self.text_view.setMarkdown(text)
+        self._render()
         self._adjust_height()
 
+    def _render(self):
+        """统一渲染：全部走自定义 HTML 转换器，确保表格正确显示。"""
+        html = _md_to_html(self._content)
+        self.text_view.setHtml(html)
+
     def append_chunk(self, chunk: str):
-        """流式追加文字片段"""
+        """流式追加文字片段。"""
         self._content += chunk
-        self.text_view.setMarkdown(self._content)
+        self._render()
         cursor = self.text_view.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.text_view.setTextCursor(cursor)
@@ -275,17 +428,15 @@ class ChatBubble(QFrame):
     def _adjust_height(self):
         w = min(self.text_view.width() or self._max_width - 28, self._max_width - 28)
         self.text_view.document().setTextWidth(w)
-        h = int(self.text_view.document().size().height()) + 20
+        h = int(self.text_view.document().size().height()) + 24
         self.text_view.setFixedHeight(max(36, h))
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 评分卡片气泡  (InterviewPanel 专用)
+# 评分卡片气泡（InterviewPanel 专用）
 # ═══════════════════════════════════════════════════════════════════
 
 class ScoreCardBubble(QFrame):
-    """评分结果展示卡片，统一样式"""
-
     def __init__(self, eval_result, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.NoFrame)
@@ -314,7 +465,6 @@ class ScoreCardBubble(QFrame):
         card_lay.setContentsMargins(16, 14, 16, 14)
         card_lay.setSpacing(10)
 
-        # 标题
         title = QLabel("📊  本题评估报告")
         title.setStyleSheet(f"""
             font-weight: 700; font-size: 13px; color: {T.NEON};
@@ -322,13 +472,12 @@ class ScoreCardBubble(QFrame):
         """)
         card_lay.addWidget(title)
 
-        # 分数行
         scores_row = QHBoxLayout()
         scores_row.setSpacing(0)
         score_items = [
-            ("技术", eval_result.tech_score,  T.NEON),
-            ("逻辑", eval_result.logic_score, T.PURPLE),
-            ("深度", eval_result.depth_score, T.YELLOW),
+            ("技术", eval_result.tech_score,    T.NEON),
+            ("逻辑", eval_result.logic_score,   T.PURPLE),
+            ("深度", eval_result.depth_score,   T.YELLOW),
             ("表达", eval_result.clarity_score, T.GREEN),
         ]
         for label, score, color in score_items:
@@ -353,7 +502,6 @@ class ScoreCardBubble(QFrame):
             item_lay.addWidget(name_lbl)
             scores_row.addWidget(item_frame)
 
-        # 综合分数
         sep = QFrame()
         sep.setFrameShape(QFrame.VLine)
         sep.setStyleSheet(f"color: {T.BORDER2}; background: {T.BORDER2};")
@@ -361,10 +509,7 @@ class ScoreCardBubble(QFrame):
         scores_row.addWidget(sep)
 
         overall_frame = QFrame()
-        overall_frame.setStyleSheet(f"""
-            background: {T.GREEN}11;
-            border-radius: 8px;
-        """)
+        overall_frame.setStyleSheet(f"background: {T.GREEN}11; border-radius: 8px;")
         overall_lay = QVBoxLayout(overall_frame)
         overall_lay.setContentsMargins(14, 8, 14, 8)
         overall_lay.setAlignment(Qt.AlignCenter)
@@ -384,7 +529,6 @@ class ScoreCardBubble(QFrame):
 
         card_lay.addLayout(scores_row)
 
-        # 建议
         if eval_result.suggestion:
             tip = QLabel(f"💡  {eval_result.suggestion}")
             tip.setWordWrap(True)
@@ -402,12 +546,10 @@ class ScoreCardBubble(QFrame):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 统计徽章卡片
+# 统计徽章
 # ═══════════════════════════════════════════════════════════════════
 
 class StatBadge(QFrame):
-    """紧凑统计徽章，用于 QuizPanel Hero 区域"""
-
     def __init__(self, icon: str, value: str, label: str, color: str, parent=None):
         super().__init__(parent)
         self.setFixedSize(130, 82)
@@ -453,8 +595,6 @@ class StatBadge(QFrame):
 # ═══════════════════════════════════════════════════════════════════
 
 class ButtonFactory:
-    """统一风格按钮生成器"""
-
     @staticmethod
     def primary(text: str, color: str = T.NEON, height: int = 38) -> QPushButton:
         btn = QPushButton(text)
@@ -462,20 +602,15 @@ class ButtonFactory:
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet(f"""
             QPushButton {{
-                background: {color}22;
-                color: {color};
+                background: {color}22; color: {color};
                 border: 1px solid {color}66;
                 border-radius: {height // 2}px;
                 font-size: 13px; font-weight: 700;
-                padding: 0 18px;
-                font-family: {T.FONT};
+                padding: 0 18px; font-family: {T.FONT};
             }}
             QPushButton:hover {{ background: {color}44; border-color: {color}; }}
             QPushButton:pressed {{ background: {color}66; }}
-            QPushButton:disabled {{
-                background: {T.BORDER}; color: {T.TEXT_MUTE};
-                border-color: {T.BORDER};
-            }}
+            QPushButton:disabled {{ background: {T.BORDER}; color: {T.TEXT_MUTE}; border-color: {T.BORDER}; }}
         """)
         return btn
 
@@ -486,19 +621,14 @@ class ButtonFactory:
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet(f"""
             QPushButton {{
-                background: {color};
-                color: #0A0A14;
-                border: none;
-                border-radius: {height // 2}px;
+                background: {color}; color: #0A0A14;
+                border: none; border-radius: {height // 2}px;
                 font-size: 13px; font-weight: 800;
-                padding: 0 18px;
-                font-family: {T.FONT};
+                padding: 0 18px; font-family: {T.FONT};
             }}
             QPushButton:hover {{ background: {color}CC; }}
             QPushButton:pressed {{ background: {color}AA; }}
-            QPushButton:disabled {{
-                background: {T.BORDER}; color: {T.TEXT_MUTE};
-            }}
+            QPushButton:disabled {{ background: {T.BORDER}; color: {T.TEXT_MUTE}; }}
         """)
         return btn
 
@@ -509,13 +639,9 @@ class ButtonFactory:
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet(f"""
             QPushButton {{
-                background: transparent;
-                color: {T.TEXT_DIM};
-                border: 1px solid {T.BORDER2};
-                border-radius: 6px;
-                font-size: 12px;
-                padding: 0 12px;
-                font-family: {T.FONT};
+                background: transparent; color: {T.TEXT_DIM};
+                border: 1px solid {T.BORDER2}; border-radius: 6px;
+                font-size: 12px; padding: 0 12px; font-family: {T.FONT};
             }}
             QPushButton:hover {{ color: {T.ACCENT}; border-color: {T.ACCENT}; }}
         """)
@@ -528,25 +654,21 @@ class ButtonFactory:
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet(f"""
             QPushButton {{
-                background: {T.SURFACE};
-                color: {T.TEXT_DIM};
+                background: {T.SURFACE}; color: {T.TEXT_DIM};
                 border: 1px solid {T.BORDER2};
                 border-radius: {height // 2}px;
                 font-size: 11px; font-weight: 600;
-                padding: 0 14px;
-                font-family: {T.FONT};
+                padding: 0 14px; font-family: {T.FONT};
             }}
             QPushButton:hover {{
-                color: {color};
-                border-color: {color}55;
-                background: {color}11;
+                color: {color}; border-color: {color}55; background: {color}11;
             }}
         """)
         return btn
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 全局 QSS 滚动条 + 基础样式
+# 全局 QSS
 # ═══════════════════════════════════════════════════════════════════
 
 GLOBAL_QSS = f"""
@@ -556,44 +678,23 @@ GLOBAL_QSS = f"""
         font-family: {T.FONT};
     }}
     QScrollBar:vertical {{
-        width: 5px;
-        background: transparent;
-        margin: 0;
+        width: 5px; background: transparent; margin: 0;
     }}
     QScrollBar::handle:vertical {{
-        background: {T.BORDER2};
-        border-radius: 2px;
-        min-height: 30px;
+        background: {T.BORDER2}; border-radius: 2px; min-height: 30px;
     }}
-    QScrollBar::handle:vertical:hover {{
-        background: {T.NEON}66;
-    }}
-    QScrollBar::add-line:vertical,
-    QScrollBar::sub-line:vertical {{
-        height: 0;
-    }}
-    QScrollBar:horizontal {{
-        height: 5px;
-        background: transparent;
-    }}
-    QScrollBar::handle:horizontal {{
-        background: {T.BORDER2};
-        border-radius: 2px;
-    }}
-    QScrollBar::add-line:horizontal,
-    QScrollBar::sub-line:horizontal {{
-        width: 0;
-    }}
+    QScrollBar::handle:vertical:hover {{ background: {T.NEON}66; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+    QScrollBar:horizontal {{ height: 5px; background: transparent; }}
+    QScrollBar::handle:horizontal {{ background: {T.BORDER2}; border-radius: 2px; }}
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
     QComboBox QAbstractItemView {{
-        background: {T.SURFACE2};
-        color: {T.TEXT};
+        background: {T.SURFACE2}; color: {T.TEXT};
         selection-background-color: {T.NEON}22;
-        border: 1px solid {T.BORDER2};
-        outline: none;
+        border: 1px solid {T.BORDER2}; outline: none;
     }}
 """
 
-# 头部导航栏 QSS
 def header_qss(border_color: str = T.BORDER) -> str:
     return f"""
         QFrame {{
@@ -602,40 +703,23 @@ def header_qss(border_color: str = T.BORDER) -> str:
         }}
     """
 
-# 输入框 QSS
 def input_qss(focus_color: str = T.NEON) -> str:
     return f"""
         QLineEdit, QTextEdit {{
-            background: {T.BG};
-            border: 1px solid {T.BORDER2};
-            border-radius: 10px;
-            padding: 8px 14px;
-            color: {T.TEXT};
-            font-size: 14px;
-            font-family: {T.FONT};
+            background: {T.BG}; border: 1px solid {T.BORDER2};
+            border-radius: 10px; padding: 8px 14px;
+            color: {T.TEXT}; font-size: 14px; font-family: {T.FONT};
         }}
-        QLineEdit:focus, QTextEdit:focus {{
-            border-color: {focus_color};
-        }}
-        QLineEdit:disabled, QTextEdit:disabled {{
-            background: {T.SURFACE};
-            color: {T.TEXT_MUTE};
-        }}
-        QLineEdit::placeholder, QTextEdit::placeholder {{
-            color: {T.TEXT_MUTE};
-        }}
+        QLineEdit:focus, QTextEdit:focus {{ border-color: {focus_color}; }}
+        QLineEdit:disabled, QTextEdit:disabled {{ background: {T.SURFACE}; color: {T.TEXT_MUTE}; }}
     """
 
 def combo_qss(focus_color: str = T.NEON) -> str:
     return f"""
         QComboBox {{
-            background: {T.BG};
-            border: 1px solid {T.BORDER2};
-            border-radius: 8px;
-            padding: 6px 12px;
-            color: {T.TEXT};
-            font-size: 13px;
-            font-family: {T.FONT};
+            background: {T.BG}; border: 1px solid {T.BORDER2};
+            border-radius: 8px; padding: 6px 12px;
+            color: {T.TEXT}; font-size: 13px; font-family: {T.FONT};
         }}
         QComboBox:focus {{ border-color: {focus_color}; }}
         QComboBox::drop-down {{ border: none; width: 20px; }}

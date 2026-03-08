@@ -2,20 +2,19 @@
 """
 面试引擎
 管理一次完整的 AI 模拟面试会话：出题、追问、评分、生成报告。
+使用原生 OpenAI SDK（避免 langchain_openai → transformers → torch 依赖链）
 """
 import json
 import os
 from datetime import datetime
 from typing import Optional
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
+from openai import OpenAI
 
 from service.evaluator import AnswerEvaluator, EvalResult
 from service.knowledge_store import KnowledgeStore
 
 
-# ── AI 面试官 System Prompt ────────────────────────────────────────────────────
 _INTERVIEWER_SYSTEM = """你是一位专业、严谨的技术面试官，正在对"{job_name}"岗位的候选人进行模拟面试。
 
 ## 你的工作流程
@@ -69,39 +68,34 @@ _REPORT_PROMPT = """请根据以下面试记录，生成一份结构化的面试
 
 
 class InterviewEngine:
-    """
-    面试引擎
-
-    用法：
-        engine = InterviewEngine(db, knowledge_store)
-        session_id = engine.start_session(student_id=1, job_position_id=1)
-        question = engine.get_first_question(session_id)
-        reply = engine.submit_answer(session_id, answer_text)
-        report = engine.finish_session(session_id)
-    """
-
-    MAX_TURNS = 8  # 最多问答轮数
+    MAX_TURNS = 8
 
     def __init__(self, db, knowledge_store: KnowledgeStore):
         self.db = db
         self.ks = knowledge_store
         self.evaluator = AnswerEvaluator()
 
-        self._llm = ChatOpenAI(
-            model="qwen-plus",
-            temperature=0.7,
-            max_tokens=1024,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        self._client = OpenAI(
             api_key=os.getenv("DASHSCOPE_API_KEY", ""),
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
+        self._model = "qwen-plus"
 
-        # 内存中的对话历史：session_id → List[BaseMessage]
-        self._histories: dict[int, list[BaseMessage]] = {}
+        # session_id → list of {"role": ..., "content": ...}
+        self._histories: dict[int, list[dict]] = {}
+
+    def _chat(self, messages: list[dict], temperature: float = 0.7, max_tokens: int = 1024) -> str:
+        resp = self._client.chat.completions.create(
+            model=self._model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            messages=messages,
+        )
+        return resp.choices[0].message.content or ""
 
     # ── 开始面试 ──────────────────────────────────────────────────────────────
 
     def start_session(self, student_id: int, job_position_id: int) -> int:
-        """创建面试会话，返回 session_id"""
         now = datetime.now().isoformat()
         cur = self.db.execute(
             "INSERT INTO interview_session (student_id, job_position_id, status, started_at) VALUES (?,?,?,?)",
@@ -112,51 +106,36 @@ class InterviewEngine:
         return session_id
 
     def get_first_question(self, session_id: int) -> str:
-        """生成第一道题，返回 AI 提问文本"""
         job = self._get_job(session_id)
         tech_stack_str = "、".join(json.loads(job["tech_stack"]))
 
-        system = _INTERVIEWER_SYSTEM.format(
+        system_content = _INTERVIEWER_SYSTEM.format(
             job_name=job["name"], tech_stack=tech_stack_str
         )
-        self._histories[session_id] = [SystemMessage(content=system)]
+        history = [
+            {"role": "system",  "content": system_content},
+            {"role": "user",    "content": "你好，我准备好了，请开始面试。"},
+        ]
+        self._histories[session_id] = history
 
-        # 触发 AI 提第一个问题
-        trigger = HumanMessage(content="你好，我准备好了，请开始面试。")
-        self._histories[session_id].append(trigger)
-
-        response = self._llm.invoke(self._histories[session_id])
-        self._histories[session_id].append(AIMessage(content=response.content))
-
-        # 记录到数据库（answer 暂时为空）
-        self._save_turn(session_id, question_text=response.content, student_answer="")
-        return response.content
+        reply = self._chat(history)
+        self._histories[session_id].append({"role": "assistant", "content": reply})
+        self._save_turn(session_id, question_text=reply, student_answer="")
+        return reply
 
     # ── 提交回答 ──────────────────────────────────────────────────────────────
 
     def submit_answer(self, session_id: int, answer: str) -> dict:
-        """
-        候选人提交回答，返回：
-        {
-            "eval": EvalResult,
-            "ai_reply": str,     # AI 追问或下一题
-            "is_finished": bool, # 是否已达到最大轮数
-        }
-        """
-        # 获取当前轮次的题目
         turn = self._get_latest_unanswered_turn(session_id)
         if not turn:
             return {"ai_reply": "面试已结束，请点击「结束面试」查看报告。", "is_finished": True}
 
         turn_id, question_text = turn
 
-        # 1. RAG 检索参考知识
         job = self._get_job(session_id)
-        context = self.ks.retrieve_as_context(
-            question_text, job_position_id=job["id"]
-        )
+        context = self.ks.retrieve_as_context(question_text, job_position_id=job["id"]) \
+            if hasattr(self.ks, "retrieve_as_context") else ""
 
-        # 2. LLM 评估回答
         eval_result = self.evaluator.evaluate(
             question=question_text,
             answer=answer,
@@ -164,34 +143,26 @@ class InterviewEngine:
             context=context,
         )
 
-        # 3. 更新当前轮次的回答和评分
         self.db.execute(
             "UPDATE interview_turn SET student_answer=?, scores=? WHERE id=?",
             (answer, json.dumps(eval_result.to_dict()), turn_id),
         )
 
-        # 4. 判断是否已经达到最大轮数
         finished_count = self.db.fetchone(
             "SELECT COUNT(*) FROM interview_turn WHERE session_id=? AND student_answer!=''",
             (session_id,),
         )[0]
         is_finished = finished_count >= self.MAX_TURNS
 
-        # 5. AI 决定追问或下一题
         history = self._histories.get(session_id, [])
-        history.append(HumanMessage(content=answer))
+        history.append({"role": "user", "content": answer})
 
         if is_finished:
-            history.append(HumanMessage(content="（面试轮数已到，请给候选人一个简短收尾语）"))
-            ai_reply_msg = self._llm.invoke(history)
-            ai_reply = ai_reply_msg.content
-        else:
-            ai_reply_msg = self._llm.invoke(history)
-            ai_reply = ai_reply_msg.content
+            history.append({"role": "user", "content": "（面试轮数已到，请给候选人一个简短收尾语）"})
 
-        history.append(AIMessage(content=ai_reply))
+        ai_reply = self._chat(history)
+        history.append({"role": "assistant", "content": ai_reply})
 
-        # 6. 如果还没结束，记录下一个 turn
         if not is_finished:
             self._save_turn(session_id, question_text=ai_reply, student_answer="")
 
@@ -204,7 +175,6 @@ class InterviewEngine:
     # ── 结束面试 ──────────────────────────────────────────────────────────────
 
     def finish_session(self, session_id: int) -> str:
-        """结束会话，生成综合报告，返回报告文本"""
         turns = self.db.fetchall(
             "SELECT question_text, student_answer, scores FROM interview_turn "
             "WHERE session_id=? AND student_answer!='' ORDER BY turn_index",
@@ -215,7 +185,6 @@ class InterviewEngine:
             self._close_session(session_id, overall_score=0.0, report=report_text)
             return report_text
 
-        # 汇总各题得分
         all_scores = []
         scores_summary_lines = []
         for i, (q, a, scores_json) in enumerate(turns, 1):
@@ -231,7 +200,6 @@ class InterviewEngine:
 
         overall_score = round(sum(all_scores) / len(all_scores), 2) if all_scores else 0.0
 
-        # 调用 LLM 生成报告
         job = self._get_job(session_id)
         student = self._get_student(session_id)
         prompt = _REPORT_PROMPT.format(
@@ -241,8 +209,11 @@ class InterviewEngine:
             scores_summary="\n".join(scores_summary_lines),
         )
         try:
-            resp = self._llm.invoke([HumanMessage(content=prompt)])
-            report_text = resp.content
+            report_text = self._chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.5,
+                max_tokens=1500,
+            )
         except Exception as e:
             report_text = f"报告生成失败: {e}\n\n各题得分：\n" + "\n".join(scores_summary_lines)
 

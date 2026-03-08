@@ -2,27 +2,27 @@
 """
 LLM 答案评估器
 对学生的面试回答进行多维度打分，返回结构化评估结果。
+使用原生 OpenAI SDK（避免 langchain_openai → transformers → torch 依赖链）
 """
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from openai import OpenAI
 
 
 @dataclass
 class EvalResult:
-    tech_score: int = 0        # 技术正确性 0-10
-    logic_score: int = 0       # 逻辑严谨性 0-10
-    depth_score: int = 0       # 知识深度   0-10
-    clarity_score: int = 0     # 表达清晰度 0-10
-    overall_score: float = 0.0 # 综合得分（加权均值）
-    strengths: str = ""        # 亮点
-    weaknesses: str = ""       # 不足
-    suggestion: str = ""       # 改进建议
-    raw_json: str = ""         # 原始 JSON 字符串（调试用）
+    tech_score: int = 0
+    logic_score: int = 0
+    depth_score: int = 0
+    clarity_score: int = 0
+    overall_score: float = 0.0
+    strengths: str = ""
+    weaknesses: str = ""
+    suggestion: str = ""
+    raw_json: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -72,30 +72,14 @@ _EVAL_SYSTEM = """你是一位严格但公正的技术面试评估官。
 
 
 class AnswerEvaluator:
-    """
-    面试回答评估器
-
-    用法：
-        evaluator = AnswerEvaluator()
-        result = evaluator.evaluate(
-            question="请解释 Java 中的 synchronized 关键字",
-            answer="synchronized 用于线程同步...",
-            job_name="Java 后端工程师",
-            context="【参考知识库】..."   # 可选，来自 RAG
-        )
-    """
-
-    # 各维度权重
     _WEIGHTS = {"tech": 0.35, "logic": 0.25, "depth": 0.25, "clarity": 0.15}
 
     def __init__(self, model: str = "qwen-plus"):
-        self._llm = ChatOpenAI(
-            model=model,
-            temperature=0.1,
-            max_tokens=512,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        self._client = OpenAI(
             api_key=os.getenv("DASHSCOPE_API_KEY", ""),
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
+        self._model = model
 
     def evaluate(
         self,
@@ -104,16 +88,19 @@ class AnswerEvaluator:
         job_name: str = "",
         context: str = "",
     ) -> EvalResult:
-        """调用 LLM 评估并返回 EvalResult"""
         user_content = self._build_prompt(question, answer, job_name, context)
         try:
-            response = self._llm.invoke([
-                SystemMessage(content=_EVAL_SYSTEM),
-                HumanMessage(content=user_content),
-            ])
-            return self._parse(response.content)
+            response = self._client.chat.completions.create(
+                model=self._model,
+                temperature=0.1,
+                max_tokens=512,
+                messages=[
+                    {"role": "system", "content": _EVAL_SYSTEM},
+                    {"role": "user",   "content": user_content},
+                ],
+            )
+            return self._parse(response.choices[0].message.content or "")
         except Exception as e:
-            # 降级：返回默认评分，避免整个流程崩溃
             result = EvalResult()
             result.suggestion = f"评估服务暂时不可用: {e}"
             return result
@@ -129,7 +116,6 @@ class AnswerEvaluator:
         return "\n\n".join(parts)
 
     def _parse(self, raw: str) -> EvalResult:
-        # 去掉可能的 markdown 代码块
         clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         try:
             data = json.loads(clean)
