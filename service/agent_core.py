@@ -86,18 +86,19 @@ class Agent:
     """
 
     def __init__(
-        self,
-        db,
-        system_prompt: Optional[str] = None,
-        model: str = "qwen-plus",
-        temperature: float = 0.1,
-        max_tokens: int = 2048,
+            self,
+            db,
+            system_prompt: Optional[str] = None,
+            # 🔑 关键修改1：默认模型改为 Omni 系列（按需选择）
+            model: str = "qwen3-omni-flash",  # 或 "qwen3-omni-plus"
+            temperature: float = 0.1,
+            max_tokens: int = 2048,
     ):
         self.db = db
         self.system_prompt = system_prompt or ""
         self.conversation = ConversationHistory(system_prompt=self.system_prompt)
-        self._tools_lc: Dict[str, Any] = {}           # name → LangChain tool obj
-        self._tools_openai: List[dict] = []           # OpenAI tools schema
+        self._tools_lc: Dict[str, Any] = {}
+        self._tools_openai: List[dict] = []
 
         self._client = OpenAI(
             api_key=os.getenv("DASHSCOPE_API_KEY", ""),
@@ -125,13 +126,13 @@ class Agent:
 
     def stream(self, user_input: str) -> Generator[str, None, None]:
         """
-        真实流式生成器。
-        - 有工具调用 → 整体收取，执行工具，yield 提示，继续下一轮
-        - 无工具调用 → 逐 token yield，第一个字符即时出现
+        真实流式生成器（兼容 Qwen3-Omni 文本模式）
+        ⚠️ Omni 的 tool_call 参数名可能略有差异，如遇报错请开启 debug 日志
+        文本输入测试之后完全兼容
         """
         self.conversation.add_user(user_input)
 
-        for _round in range(12):  # 最多 12 轮 agentic loop
+        for _round in range(12):
             messages = self.conversation.get()
 
             # ── 发起流式请求 ──────────────────────────────────────────────────
@@ -147,11 +148,17 @@ class Agent:
                 stream_kwargs["tools"] = self._tools_openai
                 stream_kwargs["tool_choice"] = "auto"
 
-            response_stream = self._client.chat.completions.create(**stream_kwargs)
+            try:
+                response_stream = self._client.chat.completions.create(**stream_kwargs)
+            except Exception as e:
+                # 🔑 关键修改3：添加兼容性错误提示
+                yield f"\n\n[⚠️ 调用失败: {e}]\n"
+                yield "[💡 请确认：1. 模型名正确 2. 账户有 Omni 权限 3. base_url 无误]\n"
+                return
 
             # ── 流式收取 ─────────────────────────────────────────────────────
             content_parts: list[str] = []
-            tool_calls_map: dict[int, dict] = {}   # index → {id, name, args}
+            tool_calls_map: dict[int, dict] = {}
             finish_reason = None
 
             for chunk in response_stream:
@@ -164,11 +171,10 @@ class Agent:
                 # 文本内容
                 if delta.content:
                     content_parts.append(delta.content)
-                    # 仅当没有工具调用时才实时 yield（流式体验）
                     if not tool_calls_map:
                         yield delta.content
 
-                # 工具调用 delta
+                # 工具调用 delta（Omni 的 tool_call 格式与 OpenAI 基本兼容）
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         idx = tc.index
@@ -187,11 +193,7 @@ class Agent:
 
             # ── 判断结果 ──────────────────────────────────────────────────────
             if tool_calls_map:
-                # 有工具调用：若之前已 yield 了文本部分，补回 markdown 的 newline
-                if full_content and not tool_calls_map:
-                    pass  # 已 yield
-
-                # 构建 OpenAI tool_calls 列表（供历史记录）
+                # 构建 OpenAI tool_calls 列表
                 openai_tool_calls = []
                 for idx in sorted(tool_calls_map.keys()):
                     tc = tool_calls_map[idx]
@@ -212,11 +214,10 @@ class Agent:
                     yield f"\n\n⚙️ **正在调用** `{tool_name}`...\n\n"
                     result = self._execute_tool(tool_name, tc_info["function"]["arguments"])
                     self.conversation.add_tool_result(tc_info["id"], result)
-
-                # 继续下一轮让 LLM 基于工具结果回答
+                # 继续下一轮
 
             else:
-                # 纯文本回答：内容已全部 yield，记录历史后退出
+                # 纯文本回答
                 self.conversation.add_assistant(full_content)
                 return
 
