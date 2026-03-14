@@ -20,7 +20,8 @@ from typing import Generator
 
 from service.agent_core import Agent
 from service.evaluator import AnswerEvaluator, EvalResult
-
+# registry 自动从 env DS_COURSE_KB_ID 构造 KnowledgeCore
+from service.tools.registry import get_interview_tools
 
 # ── 面试会话对话历史 ──────────────────────────────────────────────────────────
 
@@ -165,8 +166,6 @@ class InterviewEngine:
             max_tokens=max_tokens,
         )
 
-        # registry 自动从 env DS_COURSE_KB_ID 构造 KnowledgeCore
-        from service.tools.registry import get_interview_tools
         self._agent.register_tools(get_interview_tools(db))
 
         # session_id → InterviewHistory
