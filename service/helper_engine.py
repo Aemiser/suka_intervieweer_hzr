@@ -1,19 +1,15 @@
 # service/helper_engine.py
 """
-HelperEngine — AI 学习助手引擎，Agent 的直接使用方
+HelperEngine — AI 学习助手引擎
 
-接受独立的 tech_kb / interview_kb（KnowledgeCore 实例），
-通过 registry 加载 ASSISTANT_SKILLS 全量工具集。
-
-对外接口与旧 Agent 完全兼容，AgentPanel 无需改动：
-  stream(user_input) / chat(user_input) / clear_conversation() / get_registered_tools()
+知识库工具由 registry 自动从环境变量 TECH_KB_ID 构造，
+无需在构造函数中手动传入 KnowledgeCore 实例。
 """
 from __future__ import annotations
 
 from typing import Generator, List, Optional
 
 from service.agent_core import Agent
-from service.tools.knowledge.KnowledgeCore import KnowledgeCore
 from service.tools.permissions import ASSISTANT_SKILLS
 
 
@@ -45,27 +41,23 @@ class HelperEngine:
     """
     AI 学习助手引擎。
 
-    参数：
-        tech_kb — 技术知识库 KnowledgeCore（对应 search_knowledge_base tool）
-                  包含技术知识 + 面试技巧，是同一个知识库。
+    知识库工具（search_knowledge_base）由 registry 自动从 env TECH_KB_ID 构造，
+    无需外部传入 KnowledgeCore 实例。
 
     AgentPanel 使用示例：
-        tech_kb = KnowledgeCore(knowledge_base_id=os.getenv("TECH_KB_ID"), label="技术知识库")
-        helper  = HelperEngine(db=db, tech_kb=tech_kb)
-        panel   = AgentPanel(helper)
+        helper = HelperEngine(db=db)
+        panel  = AgentPanel(helper)
     """
 
     def __init__(
         self,
         db,
-        tech_kb: Optional[KnowledgeCore] = None,
         model: str = "qwen3-omni-flash",
         temperature: float = 0.1,
         max_tokens: int = 2048,
         system_prompt: Optional[str] = None,
     ):
-        self.db      = db
-        self.tech_kb = tech_kb
+        self.db = db
 
         self._agent = Agent(
             db=db,
@@ -75,8 +67,9 @@ class HelperEngine:
             max_tokens=max_tokens,
         )
 
+        # registry 内部自动从 TECH_KB_ID 构造 KnowledgeCore
         from service.tools.registry import get_tools_for
-        tools = get_tools_for(db=db, tech_kb=tech_kb, skill_set=ASSISTANT_SKILLS)
+        tools = get_tools_for(db=db, skill_set=ASSISTANT_SKILLS)
         self._agent.register_tools(tools)
 
     # ── 对外接口（与旧 Agent 完全兼容）──────────────────────────────────────

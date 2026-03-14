@@ -1,12 +1,11 @@
-# service/tools/knowledge/ds_course_skills.py
+# service/tools/knowledge/create_ds_course_tool.py
 """
 数据结构课程知识库检索工具（InterviewEngine 使用）
 
 工具名：search_ds_course
-对应知识库：数据结构课程（场景面试素材、课程案例、题目背景等）
-面试官（LLM）可主动调用，检索与当前面试话题相关的课程素材，
-让题目更贴近真实课程场景。
+知识库 ID 来源：环境变量 DS_COURSE_KB_ID
 """
+import os
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
@@ -25,14 +24,25 @@ class DSCourseSearchInput(BaseModel):
     top_k: int = Field(default=3, description="返回结果数，1~5", ge=1, le=5)
 
 
-def create_ds_course_tool(ds_course_kb: KnowledgeCore):
+def create_ds_course_tool(kb: KnowledgeCore = None):
     """
-    工厂函数，接受数据结构课程知识库的 KnowledgeCore 实例，返回 LangChain tool。
+    工厂函数，返回 search_ds_course LangChain tool。
 
-    用法（InterviewEngine 内部）：
-        ds_kb = KnowledgeCore(knowledge_base_id=os.getenv("DS_COURSE_KB_ID"), label="数据结构课程")
-        tool  = create_ds_course_tool(ds_kb)
+    参数：
+        kb — KnowledgeCore 实例，不传则自动从环境变量 DS_COURSE_KB_ID 构造。
+
+    用法（推荐，由 registry 调用）：
+        tool = create_ds_course_tool()          # 自动读 env
+        tool = create_ds_course_tool(course_kb) # 手动传入
     """
+    if kb is None:
+        kb_id = os.getenv("DS_COURSE_KB_ID", "")
+        if not kb_id:
+            raise ValueError(
+                "create_ds_course_tool：未传入 kb 实例，"
+                "且环境变量 DS_COURSE_KB_ID 未配置"
+            )
+        kb = KnowledgeCore(knowledge_base_id=kb_id, label="数据结构课程")
 
     @tool(args_schema=DSCourseSearchInput)
     def search_ds_course(query: str, top_k: int = 3) -> str:
@@ -41,7 +51,7 @@ def create_ds_course_tool(ds_course_kb: KnowledgeCore):
         在出题或追问时，调用本工具获取课程相关场景，
         让面试题目更贴近真实课程内容，提高面试的针对性。
         """
-        results = ds_course_kb.retrieve(query, top_k=top_k)
+        results = kb.retrieve(query, top_k=top_k)
         if not results or results[0].startswith(("📭", "⚠️")):
             return results[0] if results else "课程知识库未返回相关素材。"
 

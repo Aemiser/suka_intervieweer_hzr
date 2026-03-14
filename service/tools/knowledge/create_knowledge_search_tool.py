@@ -1,11 +1,11 @@
-# service/tools/knowledge/knowledge_skills.py
+# service/tools/knowledge/create_knowledge_search_tool.py
 """
-通用技术知识库检索工具（HelperEngine 使用）
+技术知识库检索工具（HelperEngine / AI助手 使用）
 
 工具名：search_knowledge_base
-对应知识库：原有技术知识库（Java/Spring/MySQL/Redis/前端等）
-通过注入的 KnowledgeCore 实例调用，保持工具名不变以兼容现有 system_prompt。
+知识库 ID 来源：环境变量 TECH_KB_ID
 """
+import os
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
@@ -24,15 +24,27 @@ class KnowledgeSearchInput(BaseModel):
     top_k: int = Field(default=3, description="返回结果数，1~5", ge=1, le=5)
 
 
-def create_knowledge_search_tool(kb: KnowledgeCore):
+def create_knowledge_search_tool(kb: KnowledgeCore = None):
     """
-    工厂函数，接受技术知识库的 KnowledgeCore 实例，返回 LangChain tool。
+    工厂函数，返回 search_knowledge_base LangChain tool。
 
-    用法（HelperEngine 内部）：
-        kb   = KnowledgeCore(knowledge_base_id=os.getenv("TECH_KB_ID"), label="技术知识库")
-        tool = create_knowledge_search_tool(kb)
+    参数：
+        kb — KnowledgeCore 实例，不传则自动从环境变量 TECH_KB_ID 构造。
+
+    用法（推荐，由 registry 调用）：
+        tool = create_knowledge_search_tool()          # 自动读 env
+        tool = create_knowledge_search_tool(tech_kb)  # 手动传入
     """
+    if kb is None:
+        kb_id = os.getenv("TECH_KB_ID", "")
+        if not kb_id:
+            raise ValueError(
+                "create_knowledge_search_tool：未传入 kb 实例，"
+                "且环境变量 TECH_KB_ID 未配置"
+            )
+        kb = KnowledgeCore(knowledge_base_id=kb_id, label="技术知识库")
 
+    # 闭包捕获 kb 实例
     @tool(args_schema=KnowledgeSearchInput)
     def search_knowledge_base(query: str, top_k: int = 3) -> str:
         """

@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
 
 from service.db import DatabaseManager
 from service.schema import SchemaInitializer
-from service.tools.knowledge.KnowledgeCore import KnowledgeCore
 from service.interview_engine import InterviewEngine
 from service.helper_engine import HelperEngine
 
@@ -31,28 +30,14 @@ def main():
     db = DatabaseManager("interview.db")
     SchemaInitializer(db).initialize()
 
-    # ── 知识库 ────────────────────────────────────────────────────────────────
-    #
-    # tech_kb      — 技术知识库，HelperEngine(AI 助手) 使用
-    #                包含 Java/Spring/MySQL/Redis/前端/面试技巧等内容
-    #                .env: TECH_KB_ID = "xxx"
-    #
-    # ds_course_kb — 数据结构课程知识库，InterviewEngine(面试引擎) 使用
-    #                提供场景面试素材，拼入面试官 prompt，不暴露给模型做工具调用
-    #                .env: DS_COURSE_KB_ID = "xxx"
-    #
-    tech_kb = KnowledgeCore(
-        knowledge_base_id=os.getenv("TECH_KB_ID", ""),
-        label="技术知识库",
-    )
-    ds_course_kb = KnowledgeCore(
-        knowledge_base_id=os.getenv("DS_COURSE_KB_ID", ""),
-        label="数据结构课程",
-    )
-
     # ── 引擎层 ────────────────────────────────────────────────────────────────
-    interview_engine = InterviewEngine(db=db, ds_course_kb=ds_course_kb)
-    helper_engine    = HelperEngine(db=db, tech_kb=tech_kb)
+    # KnowledgeCore 实例由各引擎内部通过 registry 自动从 env 构造，
+    # 无需在 main.py 手动创建。
+    # 相关环境变量（.env）：
+    #   TECH_KB_ID      — 技术知识库，HelperEngine(AI 助手) 使用
+    #   DS_COURSE_KB_ID — 数据结构课程库，InterviewEngine(面试引擎) 使用
+    interview_engine = InterviewEngine(db=db)
+    helper_engine    = HelperEngine(db=db)
 
     # ── 主窗口 ────────────────────────────────────────────────────────────────
     window = QMainWindow()
