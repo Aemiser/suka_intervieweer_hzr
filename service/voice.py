@@ -66,10 +66,13 @@ class VoiceRecorder:
         out_wav = os.path.join(self.temp_dir, f"rec_{uuid.uuid4()}.wav")
 
         self._recording = True
+        frames_captured = 0
 
         def callback(indata, frames, time_info, status):
+            nonlocal frames_captured
+            
+            # 记录状态，但不中止（某些状态是正常的）
             if status and not status == sd.CallbackFlags.none:
-                # 忽略偶发状态
                 pass
 
             if self._cancel_event.is_set():
@@ -77,7 +80,10 @@ class VoiceRecorder:
             if self._stop_event.is_set():
                 raise sd.CallbackStop
 
-            self._frames.append(indata.copy())
+            # 确保捕获正确数据
+            if indata is not None and len(indata) > 0:
+                self._frames.append(indata.copy())
+                frames_captured += len(indata)
 
         try:
             with sd.InputStream(
@@ -85,6 +91,7 @@ class VoiceRecorder:
                 channels=RECORD_CONFIG["channels"],
                 dtype=RECORD_CONFIG["dtype"],
                 callback=callback,
+                blocksize=0,  # 使用默认块大小
             ):
                 start = time.time()
                 while time.time() - start < duration:
@@ -93,7 +100,11 @@ class VoiceRecorder:
                     if self._stop_event.is_set():
                         break
                     time.sleep(0.05)
-                self._stop_event.set()
+                
+                # 确保流正确关闭
+                if not self._cancel_event.is_set() and not self._stop_event.is_set():
+                    self._stop_event.set()
+                    
         except sd.CallbackAbort:
             self._recording = False
             raise RuntimeError("录音已取消")
@@ -106,16 +117,23 @@ class VoiceRecorder:
         if self._cancel_event.is_set():
             raise RuntimeError("录音已取消")
 
-        if not self._frames:
-            raise RuntimeError("未获取到录音数据，请重试")
+        if not self._frames or frames_captured == 0:
+            raise RuntimeError(f"未获取到录音数据（捕获帧数：{frames_captured}），请重试")
 
         audio_data = np.concatenate(self._frames, axis=0)
+
+        # 检查数据样本数
+        if len(audio_data) < RECORD_CONFIG["samplerate"] * 0.3:  # 最少 0.3 秒
+            raise RuntimeError("录音时长过短，请重新录入（至少 0.3 秒）")
 
         # 自动检测录音音量
         rms = np.sqrt(np.mean(audio_data.astype('float64') ** 2))
         if rms < 0.01:
             raise RuntimeError("录音音量太低，请靠近麦克风重试")
 
+        # 确保目录存在
+        os.makedirs(self.temp_dir, exist_ok=True)
+        
         with wave.open(out_wav, "wb") as wf:
             wf.setnchannels(RECORD_CONFIG["channels"])
             wf.setsampwidth(2)

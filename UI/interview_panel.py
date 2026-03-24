@@ -38,28 +38,59 @@ class VoiceWorker(QObject):
         self.cancel_requested.connect(self.cancel)
 
     def stop(self):
+        print("[DEBUG] VoiceWorker.stop() 被调用")
         self.recorder.stop()
 
     def cancel(self):
+        print("[DEBUG] VoiceWorker.cancel() 被调用")
         self.recorder.cancel()
 
     def run(self):
+        print("[DEBUG] VoiceWorker.run() 开始执行")
         try:
+            print("[DEBUG] 开始录音，最长 60 秒...")
             audio_path = self.recorder.record(60)
+            print(f"[DEBUG] 录音完成，文件路径：{audio_path}")
+            
+            if not audio_path:
+                raise RuntimeError("录音路径为空")
+            
+            import os
+            if not os.path.exists(audio_path):
+                raise RuntimeError(f"录音文件不存在：{audio_path}")
+            
+            file_size = os.path.getsize(audio_path)
+            print(f"[DEBUG] 录音文件大小：{file_size} bytes")
+            
+            if file_size < 1000:
+                raise RuntimeError(f"录音文件过小（{file_size} bytes），可能未成功捕获音频")
+            
+            print("[DEBUG] 初始化 STTClient...")
             client = STTClient()
+            
+            print("[DEBUG] 调用 API 进行语音识别...")
             result = client.analyze(audio_path)
+            print(f"[DEBUG] API 识别成功：{result.transcript[:50]}...")
+            
             self.finished.emit(result)
+            
         except Exception as e:
             # 捕获业务异常，避免子线程崩溃导致主线程出现 Destroyed 问题
-            self.error.emit(str(e))
+            error_msg = str(e)
+            print(f"[ERROR] VoiceWorker 执行失败：{error_msg}")
+            self.error.emit(error_msg)
         except BaseException as e:
             # 捕获所有异常（包括 SystemExit、KeyboardInterrupt 等）以保护主线程
-            self.error.emit(f"音频线程致命错误：{e}")
+            error_msg = f"音频线程致命错误：{e}"
+            print(f"[FATAL] {error_msg}")
+            self.error.emit(error_msg)
         finally:
             try:
+                print("[DEBUG] 清理临时文件...")
                 self.recorder.clean_temp()
-            except Exception:
-                pass
+                print("[DEBUG] 清理完成")
+            except Exception as e:
+                print(f"[WARN] 清理时出错：{e}")
 
 class InterviewWorker(QObject):
     """
@@ -623,6 +654,7 @@ class InterviewPanel(QWidget):
             # 录音过程中再次点击 = 立即结束并发送
             if self._voice_worker:
                 self._voice_worker.stop_requested.emit()
+                print("[DEBUG] 停止录音信号已发送")
             self.voice_btn.setText("发送中...")
             self.voice_btn.setEnabled(False)
             self.voice_cancel_btn.setEnabled(False)
@@ -643,16 +675,22 @@ class InterviewPanel(QWidget):
         # 启动及信号连接
         self._voice_thread.started.connect(self._voice_worker.run)
 
+        # ★ 关键：连接停止 / 取消请求到 Worker 的对应方法
+        self._voice_worker.stop_requested.connect(self._voice_worker.stop)
+        self._voice_worker.cancel_requested.connect(self._voice_worker.cancel)
+
+        # 业务逻辑：收到结果或错误
         self._voice_worker.finished.connect(self._on_voice_result)
         self._voice_worker.error.connect(self._on_voice_error)
 
+        # UI 状态：重置按钮
         self._voice_worker.finished.connect(self._reset_voice_btn)
         self._voice_worker.error.connect(self._reset_voice_btn)
 
+        # 线程生命周期：完成 → 退出线程 → 清理
         self._voice_worker.finished.connect(self._voice_thread.quit)
         self._voice_worker.error.connect(self._voice_thread.quit)
 
-        # 关联销毁 / 清理
         self._voice_thread.finished.connect(self._voice_worker.deleteLater)
         self._voice_thread.finished.connect(self._voice_thread.deleteLater)
         self._voice_worker.destroyed.connect(self._cleanup_voice_thread)
@@ -663,9 +701,11 @@ class InterviewPanel(QWidget):
         self._voice_thread.setObjectName("VoiceThread")
         self._voice_worker.setObjectName("VoiceWorker")
 
+        print("[DEBUG] 开始语音录制，线程启动...")
         self._voice_thread.start()
 
     def _on_voice_result(self, voice_result: VoiceResult):
+        print(f"[DEBUG] 语音识别成功：{voice_result.transcript[:50]}...")
         self._reset_voice_btn()
         self.answer_input.setPlainText(voice_result.transcript)
         self._add_bubble("user", voice_result.transcript)
@@ -680,8 +720,9 @@ class InterviewPanel(QWidget):
         self._worker.request_answer.emit(voice_result.transcript)
 
     def _on_voice_error(self, error_msg: str):
+        print(f"[ERROR] 语音录制或识别失败：{error_msg}")
         self._reset_voice_btn()
-        QMessageBox.critical(self, "语音输入失败", error_msg)
+        QMessageBox.critical(self, "语音输入失败", f"{error_msg}\n\n【诊断建议】\n- 检查麦克风是否连接\n- 确保麦克风有录音权限\n- 尝试靠近麦克风重新讲话\n- 检查网络连接和 API Key 配置")
 
     def _on_voice_cancel(self):
         if self._voice_worker:
