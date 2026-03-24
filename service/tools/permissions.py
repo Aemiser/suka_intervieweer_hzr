@@ -34,6 +34,7 @@ TOOL_QUIZ_STATS  = "get_question_bank_stats"
 TOOL_RAG         = "search_knowledge_base"
 TOOL_WEB_SEARCH  = "web_search"
 TOOL_WIKIPEDIA   = "search_wikipedia"
+TOOL_VOICE_TRANSCRIBE = "voice_transcribe"
 
 # ── 权限集合定义 ──────────────────────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ INTERVIEW_SKILLS = SkillSet(
         TOOL_JOB_INFO,
         TOOL_QUIZ_DRAW,
         TOOL_QUIZ_STATS,
+        TOOL_VOICE_TRANSCRIBE,
     }),
 )
 
@@ -71,6 +73,7 @@ ASSISTANT_SKILLS = SkillSet(
         TOOL_RAG,
         TOOL_WEB_SEARCH,
         TOOL_WIKIPEDIA,
+        TOOL_VOICE_TRANSCRIBE,
     }),
 )
 
@@ -86,6 +89,7 @@ ADMIN_SKILLS = SkillSet(
         TOOL_RAG,
         TOOL_WEB_SEARCH,
         TOOL_WIKIPEDIA,
+        TOOL_VOICE_TRANSCRIBE,
     }),
 )
 

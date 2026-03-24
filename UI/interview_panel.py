@@ -10,23 +10,49 @@ submit_answer_stream / finish_session_stream），实现：
 import json
 from datetime import datetime
 
+from PySide6.QtCore import Qt, Signal, QThread, QObject, QTimer, QEvent
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QLineEdit, QTextEdit, QScrollArea, QFrame,
     QMessageBox, QSizePolicy,
 )
-from PySide6.QtCore import Qt, Signal, QThread, QObject, QTimer, QEvent
 from PySide6.QtGui import QColor, QKeyEvent
 
 from UI.components import (
     Theme as T, ChatBubble, ScoreCardBubble, TypingIndicator, StreamSignals,
     ButtonFactory, GLOBAL_QSS, input_qss, combo_qss,
 )
+from service.voice import VoiceRecorder, STTClient, VoiceResult
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 后台工作线程（流式版）
-# ══════════════════════════════════════════════════════════════════════════════
+class VoiceWorker(QObject):
+    finished = Signal(object)  # VoiceResult
+    error = Signal(str)
+    stop_requested = Signal()
+    cancel_requested = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.recorder = VoiceRecorder()
+        self.stop_requested.connect(self.stop)
+        self.cancel_requested.connect(self.cancel)
+
+    def stop(self):
+        self.recorder.stop()
+
+    def cancel(self):
+        self.recorder.cancel()
+
+    def run(self):
+        try:
+            audio_path = self.recorder.record(60)
+            client = STTClient()
+            result = client.analyze(audio_path)
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+        finally:
+            self.recorder.clean_temp()
 
 class InterviewWorker(QObject):
     """
@@ -55,6 +81,8 @@ class InterviewWorker(QObject):
     score_received      = Signal(float)     # 报告总分
     stream_done         = Signal(str)       # 流结束，携带阶段标识
     error_occurred      = Signal(str)
+    voice_result        = Signal(object)    # VoiceResult
+    voice_error         = Signal(str)
 
     # 阶段标识常量
     PHASE_FIRST_Q = "first_q"
@@ -223,6 +251,11 @@ class InterviewPanel(QWidget):
         self._stream_phase: str = ""          # first_q / answer / report
         self._pending_is_finished = False     # 本轮是否是最后一轮
 
+        # ── 语音录制状态 ───────────────────────────────────────────────────────
+        self._is_voice_recording = False
+        self._voice_thread: QThread | None = None
+        self._voice_worker: VoiceWorker | None = None
+
         # ── 滚动状态 ──────────────────────────────────────────────────────────
         self._user_scrolled_up = False        # 用户是否手动滚离了底部
         self._has_new_content = False         # 是否有未读新内容
@@ -373,12 +406,24 @@ class InterviewPanel(QWidget):
         self.answer_input.setEnabled(False)
         self.answer_input.installEventFilter(self)
 
+        self.voice_btn = ButtonFactory.solid("🎤 语音", T.PURPLE, height=54)
+        self.voice_btn.setFixedWidth(90)
+        self.voice_btn.setEnabled(False)
+        self.voice_btn.clicked.connect(self._on_voice_btn_click)
+
+        self.voice_cancel_btn = ButtonFactory.solid("取消", T.ACCENT, height=54)
+        self.voice_cancel_btn.setFixedWidth(80)
+        self.voice_cancel_btn.setVisible(False)
+        self.voice_cancel_btn.clicked.connect(self._on_voice_cancel)
+
         self.send_btn = ButtonFactory.solid("发送", T.NEON, height=54)
         self.send_btn.setFixedWidth(80)
         self.send_btn.setEnabled(False)
         self.send_btn.clicked.connect(self._send_answer)
 
         input_row.addWidget(self.answer_input)
+        input_row.addWidget(self.voice_btn)
+        input_row.addWidget(self.voice_cancel_btn)
         input_row.addWidget(self.send_btn)
         f_lay.addLayout(input_row)
         return footer
@@ -563,6 +608,81 @@ class InterviewPanel(QWidget):
         self._set_input_enabled(False)
         self._worker.request_answer.emit(answer)
 
+    def _on_voice_btn_click(self):
+        if self._is_streaming:
+            return
+
+        if self._is_voice_recording:
+            # 录音过程中再次点击 = 立即结束并发送
+            if self._voice_worker:
+                self._voice_worker.stop_requested.emit()
+            self.voice_btn.setText("发送中...")
+            self.voice_btn.setEnabled(False)
+            self.voice_cancel_btn.setEnabled(False)
+            return
+
+        # 开始录音
+        self._is_voice_recording = True
+        self.voice_btn.setText("停止并发送")
+        self.voice_btn.setEnabled(True)
+        self.voice_cancel_btn.setVisible(True)
+        self.voice_cancel_btn.setEnabled(True)
+
+        self._voice_thread = QThread()
+        self._voice_worker = VoiceWorker()
+        self._voice_worker.moveToThread(self._voice_thread)
+
+        self._voice_thread.started.connect(self._voice_worker.run)
+        self._voice_worker.finished.connect(self._on_voice_result)
+        self._voice_worker.error.connect(self._on_voice_error)
+
+        self._voice_worker.stop_requested.connect(self._voice_worker.stop)
+        self._voice_worker.cancel_requested.connect(self._voice_worker.cancel)
+
+        self._voice_worker.finished.connect(self._voice_thread.quit)
+        self._voice_worker.error.connect(self._voice_thread.quit)
+
+        self._voice_thread.finished.connect(self._voice_worker.deleteLater)
+        self._voice_thread.finished.connect(self._voice_thread.deleteLater)
+        self._voice_thread.finished.connect(self._cleanup_voice_thread)
+
+        self._voice_thread.start()
+
+    def _on_voice_result(self, voice_result: VoiceResult):
+        self._reset_voice_btn()
+        self.answer_input.setPlainText(voice_result.transcript)
+        self._add_bubble("user", voice_result.transcript)
+
+        # 将语音转写结果直接送入面试引擎评估/流式回答流程
+        self._pending_is_finished = False
+        self._stream_phase = InterviewWorker.PHASE_ANSWER
+        self._is_streaming = True
+        self._add_typing_indicator()
+        self._set_loading(True, "AI 正在思考...")
+        self._set_input_enabled(False)
+        self._worker.request_answer.emit(voice_result.transcript)
+
+    def _on_voice_error(self, error_msg: str):
+        self._reset_voice_btn()
+        QMessageBox.critical(self, "语音输入失败", error_msg)
+
+    def _on_voice_cancel(self):
+        if self._voice_worker:
+            self._voice_worker.cancel_requested.emit()
+        self._reset_voice_btn()
+
+    def _cleanup_voice_thread(self):
+        self._voice_thread = None
+        self._voice_worker = None
+
+    def _reset_voice_btn(self):
+        self._is_voice_recording = False
+        self.voice_btn.setText("🎤 语音")
+        self.voice_btn.setEnabled(True)
+        self.voice_cancel_btn.setVisible(False)
+        self._voice_thread = None
+        self._voice_worker = None
+
     def _finish_interview(self):
         self._set_loading(True, "正在生成最终报告...")
         self._set_input_enabled(False)
@@ -675,6 +795,7 @@ class InterviewPanel(QWidget):
 
     def _set_input_enabled(self, enabled: bool):
         self.answer_input.setEnabled(enabled)
+        self.voice_btn.setEnabled(enabled)
         self.send_btn.setEnabled(enabled)
         if enabled:
             self.answer_input.setFocus()

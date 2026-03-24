@@ -26,6 +26,7 @@ from .db_tools import (
     create_quiz_draw_tool,
     create_quiz_search_tool,
     create_quiz_stats_tool,
+    create_voice_transcribe_tool,
 )
 from .knowledge_tools import create_rag_tool
 from .search_tools import create_web_search_tool, create_wiki_tool
@@ -51,6 +52,7 @@ _TOOL_FACTORIES = [
     ("search_knowledge_base",         create_rag_tool,          ["knowledge_store"]),
     ("web_search",                    create_web_search_tool,   []),           # 无参，从 env 读
     ("search_wikipedia",              create_wiki_tool,         []),           # 无参
+    ("voice_transcribe",              create_voice_transcribe_tool, ["db"]),
 ]
 
 
