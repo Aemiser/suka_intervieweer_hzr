@@ -2,6 +2,7 @@
 venv/
 .venv/
 env/
+.venv_backup*/
 
 # Python 缓存（递归忽略所有 .pyc 和 __pycache__）
 **/__pycache__/

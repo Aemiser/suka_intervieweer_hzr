@@ -6,6 +6,10 @@ langchain-core==1.2.17
 pydantic==2.12.5
 langchain-community==0.4.1
 openai==2.26.0
-sounddevice==0.4.6
 numpy==1.26.0
 pydub==0.25.1
+
+# 语音相关
+sounddevice>=0.4.6
+soundfile>=0.12.1
+pyaudio>=0.2.13
