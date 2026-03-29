@@ -18,6 +18,9 @@ import json
 from datetime import datetime
 from typing import Generator
 
+from service.evaluator import AnswerEvaluator, EvalResult, evaluate_voice_answer
+from service.knowledge_store import KnowledgeStore
+
 from service.agent_core import Agent
 from service.evaluator import AnswerEvaluator, EvalResult
 # registry 自动从 env DS_COURSE_KB_ID 构造 KnowledgeCore
@@ -314,9 +317,51 @@ class InterviewEngine:
         if not is_finished:
             self._save_turn(session_id, question_text=ai_full_text, student_answer="")
 
-    def confirm_answer(self, session_id: int, ai_full_text: str, is_finished: bool):
-        """流式版已内置历史同步和落库，此方法供兼容保留。"""
-        pass
+    # ── 提交回答：同步兼容版 ──────────────────────────────────────────────────
+
+    def submit_answer(self, session_id: int, answer: str) -> dict:
+        eval_result = None
+        ai_parts: list[str] = []
+        is_finished = False
+
+        for token in self.submit_answer_stream(session_id, answer):
+            if token.startswith("__EVAL__:"):
+                data = json.loads(token[len("__EVAL__:"):].strip())
+                # 重建 EvalResult（简单 dict 包装）
+                eval_result = _DictEvalResult(data)
+            elif token == "__IS_FINISHED__\n":
+                is_finished = True
+            elif token == "__FINISHED__\n":
+                return {"ai_reply": "面试已结束，请点击「结束面试」查看报告。", "is_finished": True}
+            elif token.startswith("__ERROR__:"):
+                raise RuntimeError(token[len("__ERROR__:"):].strip())
+            else:
+                ai_parts.append(token)
+
+        ai_reply = "".join(ai_parts)
+        self.confirm_answer(session_id, ai_reply, is_finished)
+        return {"eval": eval_result, "ai_reply": ai_reply, "is_finished": is_finished}
+
+    def process_voice_answer(self, mp3_path: str):
+        """基于语音输入执行转写+情绪评估，并触发流式追问/换题逻辑。"""
+        from service.voice import transcribe
+
+        voice_result = transcribe(mp3_path)
+        from service.evaluator import evaluate_voice_answer
+
+        eval_data = evaluate_voice_answer(voice_result)
+        decision = eval_data.get("followup_decision", "no_followup")
+
+        if decision in {"harder", "easier"}:
+            self._generate_followup_question(decision, voice_result.transcript)
+        elif decision == "no_followup":
+            self._draw_next_question()
+        else:
+            self._generate_interview_report()
+
+        return {"voice_result": voice_result, "eval": eval_data}
+
+    # ── 结束面试：流式版 ──────────────────────────────────────────────────────
 
     # ── 结束面试 ──────────────────────────────────────────────────────────────
 

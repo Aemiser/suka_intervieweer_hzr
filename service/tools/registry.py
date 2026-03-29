@@ -28,6 +28,7 @@ from .db_tools import (
     create_quiz_draw_tool,
     create_quiz_search_tool,
     create_quiz_stats_tool,
+    create_voice_transcribe_tool,
 )
 from .knowledge import (
     KnowledgeCore,
@@ -44,6 +45,24 @@ from .permissions import (
 )
 
 
+# ── 工具工厂注册表 ────────────────────────────────────────────────────────────
+# 每条记录：(工具名称, 工厂函数, 需要的参数列表)
+# 参数列表中的字符串对应 _build_all_tools() 的 kwargs key
+_TOOL_FACTORIES = [
+    # (tool_name,                    factory_fn,               kwargs_keys)
+    ("get_student_interview_history", create_history_tool,      ["db"]),
+    ("get_job_position_info",         create_job_info_tool,     ["db"]),
+    ("draw_questions_from_bank",      create_quiz_draw_tool,    ["db"]),
+    ("search_question_bank",          create_quiz_search_tool,  ["db"]),
+    ("get_question_bank_stats",       create_quiz_stats_tool,   ["db"]),
+    ("search_knowledge_base",         create_rag_tool,          ["knowledge_store"]),
+    ("web_search",                    create_web_search_tool,   []),           # 无参，从 env 读
+    ("search_wikipedia",              create_wiki_tool,         []),           # 无参
+    ("voice_transcribe",              create_voice_transcribe_tool, ["db"]),
+]
+
+
+def _build_all_tools(db=None, knowledge_store=None) -> dict[str, Any]:
 def build_tools(
     db=None,
     tech_kb: Optional[KnowledgeCore] = None,
