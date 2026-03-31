@@ -28,6 +28,7 @@ from .db_tools import (
     create_quiz_draw_tool,
     create_quiz_search_tool,
     create_quiz_stats_tool,
+    create_voice_transcribe_tool,
 )
 from .knowledge import (
     KnowledgeCore,
