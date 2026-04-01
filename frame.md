@@ -1,93 +1,3 @@
-# 整体架构图
-
-```mermaid
-graph TB
-    subgraph UILayer["🖥️ UI 层 (PySide6) — 仅学生使用"]
-        IP[interview_panel.py\n面试主界面]
-        QP[quiz_panel.py\n题库练习]
-        HP[history_panel.py\n历史分析]
-        AP[agent_panel.py\nAI 助手]
-        COMP[components.py\n统一组件库\nTheme / ChatBubble / ButtonFactory]
-    end
-
-    subgraph SvcLayer["⚙️ Service 层"]
-        AC[agent_core.py\nAgent 框架\n流式 + 工具调用]
-        IE[interview_engine.py\n面试流程引擎\n抽题→RAG深化→循环]
-        EV[evaluator.py\n多维度评分器\ntech/logic/depth/clarity]
-        KS[knowledge_store.py\n知识库检索\n百炼 RAG]
-        VO[voice.py ★\nSTT\nqwen3-asr-flash]
-        DB2[db.py\nSQLite 连接管理\n单例 WAL模式]
-        SC[schema.py\n建表 + 种子数据]
-    end
-
-    subgraph ToolsLayer["🔧 工具层 (service/tools/)"]
-        REG[registry.py\n工具注册中心\n懒加载]
-        PERM[permissions.py\nSkillSet 权限集合]
-        DBT[db_tools.py\n题库/历史/岗位]
-        KT[knowledge_tools.py\nRAG 检索工具]
-        ST[search_tools.py\n博查/Wikipedia]
-    end
-
-    subgraph ModelLayer["🤖 大模型层 (DashScope)"]
-        QP2[qwen-plus\n评分/报告]
-        QO[qwen3-omni-flash\n面试官/助手]
-        ASR[qwen3-asr-flash\nSTT 语音转文字]
-    end
-
-    subgraph StorageLayer["💾 存储层"]
-        SQLITE[(SQLite\ninterview.db\nWAL模式)]
-        BAILIAN[(阿里云百炼\n知识库A\n面试知识点)]
-    end
-
-    subgraph AdminLayer["☁️ 阿里云控制台（管理员，与本工具解耦）"]
-        UPLOAD[上传/管理\nPDF/文档/知识点]
-    end
-
-    UPLOAD -->|向量化索引| BAILIAN
-
-    IP -->|StreamSignals 跨线程| IE
-    IE -->|流式回调| IP
-    IP -.->|录音注入 ★| VO
-    AP -->|stream 生成器| AC
-    AC -->|流式回调| AP
-    HP --> DB2
-    QP --> DB2
-
-    AC --> REG
-    IE --> EV
-    IE --> KS
-    EV --> QP2
-    AC --> QO
-    IE --> QO
-    VO --> ASR
-
-    REG --> PERM
-    REG --> DBT
-    REG --> KT
-    REG --> ST
-
-    DBT --> DB2
-    KT --> KS
-    ST -->|HTTP| 互联网
-
-    KS --> BAILIAN
-    DB2 --> SQLITE
-    SQLITE --> DB2
-
-    COMP -.->|样式规范| IP
-    COMP -.->|样式规范| AP
-    COMP -.->|样式规范| HP
-    COMP -.->|样式规范| QP
-
-    style UILayer fill:#0F1628,stroke:#00D4FF,color:#E8E8F5
-    style SvcLayer fill:#12121E,stroke:#B388FF,color:#E8E8F5
-    style ToolsLayer fill:#1A1A2E,stroke:#FFD166,color:#E8E8F5
-    style ModelLayer fill:#0A0A14,stroke:#00FF9D,color:#E8E8F5
-    style StorageLayer fill:#12121E,stroke:#E94560,color:#E8E8F5
-    style AdminLayer fill:#0A0A14,stroke:#888888,stroke-dasharray:6 3,color:#888888
-
-```
-
 # 面试数据流图
 
 ```mermaid
@@ -226,7 +136,7 @@ sequenceDiagram
 # Agent×SkillSet工具调用时序图
 ```mermaid
 sequenceDiagram
-    actor User as 👤 用户
+    actor User as 用户
     participant AP as AgentPanel\n(UI)
     participant AG as Agent\n(agent_core.py)
     participant REG as Registry\n(registry.py)
@@ -252,12 +162,12 @@ sequenceDiagram
     AG->>LLM: chat.completions.create(\n  stream=True,\n  tools=[8个OpenAI格式工具],\n  tool_choice="auto"\n)
     LLM-->>AG: 流式返回 delta.tool_calls\n{name:"draw_questions_from_bank"\n args:{classify:"MySQL",count:5}}
 
-    AG->>AP: yield "⚙️ 正在调用 draw_questions_from_bank..."
+    AG->>AP: yield "正在调用 draw_questions_from_bank..."
     AP->>AP: ChatBubble.append_chunk(text)
 
     AG->>TOOL: tool_obj.invoke({classify:"MySQL",count:5})
     TOOL->>TOOL: db.fetchall(SQL)\nrandom.sample(rows,5)
-    TOOL-->>AG: "📚 已从题库随机抽取5道题..."
+    TOOL-->>AG: "已从题库随机抽取5道题..."
 
     AG->>AG: conversation.add_tool_result(tool_call_id, result)
 
@@ -278,12 +188,12 @@ sequenceDiagram
     LLM-->>AG: tool_call: search_knowledge_base\n(query="MVCC", top_k=3)
     AG->>TOOL: search_knowledge_base.invoke(...)
     TOOL->>TOOL: knowledge_store.retrieve("MVCC")
-    TOOL-->>AG: "📚 知识库检索结果..."
+    TOOL-->>AG: "知识库检索结果..."
 
     AG->>LLM: 第二轮（含知识库结果）
     LLM-->>AG: tool_call: web_search\n(query="MVCC 最新 2024")
     AG->>TOOL: web_search.invoke(...)
-    TOOL-->>AG: "🌐 博查搜索结果..."
+    TOOL-->>AG: "博查搜索结果..."
 
     AG->>LLM: 第三轮（含两次工具结果）
     LLM-->>AG: 最终流式文本回复
