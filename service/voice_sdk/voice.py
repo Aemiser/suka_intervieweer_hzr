@@ -351,7 +351,13 @@ class StreamingAudioPlayer:
         # TTS 播放统一输出为 24kHz / 单声道 / 16-bit PCM，避免频繁重建设备流。
         self.default_sample_rate = default_sample_rate or 24000
         self.default_channels = default_channels or 1
-        self._queue: queue.Queue[bytes | None] = queue.Queue()
+        self._ingress_queue: queue.Queue[bytes | None] = queue.Queue()
+        self._prebuffer_seconds = 0.2
+        bytes_per_sample = 2  # paInt16
+        self._bytes_per_second = self.default_sample_rate * self.default_channels * bytes_per_sample
+        self._prebuffer_bytes = max(int(self._bytes_per_second * self._prebuffer_seconds), 2048)
+        # 固定写入块，避免频繁写入极小 chunk 导致音频下溢卡顿。
+        self._write_block_bytes = max(int(self._bytes_per_second * 0.06), 2048)
         self._closed = threading.Event()
         self._pa = pyaudio.PyAudio()
         self._stream = self._pa.open(
@@ -367,30 +373,50 @@ class StreamingAudioPlayer:
         if self._closed.is_set():
             return
         if audio_chunk:
-            self._queue.put(audio_chunk)
+            self._ingress_queue.put(audio_chunk)
 
     def close(self) -> None:
         if self._closed.is_set():
             return
         self._closed.set()
-        self._queue.put(None)
+        self._ingress_queue.put(None)
 
     def join(self, timeout: float | None = None) -> None:
         self._thread.join(timeout)
 
     def _run(self) -> None:
+        pcm_buffer = bytearray()
+        started = False
+
         try:
             while True:
-                audio_chunk = self._queue.get()
-                if audio_chunk is None:
+                item = self._ingress_queue.get()
+                if item is None:
                     break
+
                 try:
-                    pcm_bytes = self._decode_chunk(audio_chunk)
+                    pcm_bytes = self._decode_chunk(item)
                     if not pcm_bytes:
                         continue
-                    self._stream.write(pcm_bytes)
+                    pcm_buffer.extend(pcm_bytes)
+
+                    # 启播前确保最小预缓冲，降低首句和句间抖动。
+                    if not started and len(pcm_buffer) < self._prebuffer_bytes:
+                        continue
+                    started = True
+
+                    while len(pcm_buffer) >= self._write_block_bytes:
+                        write_bytes = bytes(pcm_buffer[: self._write_block_bytes])
+                        del pcm_buffer[: self._write_block_bytes]
+                        self._stream.write(write_bytes)
                 except Exception as exc:
                     print(f"[TTS Player] chunk play failed: {exc}")
+
+            if pcm_buffer:
+                try:
+                    self._stream.write(bytes(pcm_buffer))
+                except Exception as exc:
+                    print(f"[TTS Player] final flush failed: {exc}")
         finally:
             try:
                 self._stream.stop_stream()
@@ -414,6 +440,21 @@ class StreamingAudioPlayer:
         if audio_chunk.startswith(b"RIFF"):
             try:
                 with wave.open(io.BytesIO(audio_chunk), "rb") as wf:
+                    channels = wf.getnchannels()
+                    sample_width = wf.getsampwidth()
+                    frame_rate = wf.getframerate()
+                    comptype = wf.getcomptype()
+
+                    # 严格 WAV 解析：仅接受 PCM / 16-bit / 单声道 / 24kHz。
+                    if comptype != "NONE":
+                        return b""
+                    if channels != self.default_channels:
+                        return b""
+                    if sample_width != 2:
+                        return b""
+                    if frame_rate != self.default_sample_rate:
+                        return b""
+
                     return wf.readframes(wf.getnframes())
             except Exception:
                 return b""
@@ -659,6 +700,16 @@ def iter_sentences_from_token_stream(
 
     punctuation_regex = re.compile("[" + re.escape("".join(sentence_punctuations)) + "]")
     buffer = ""
+    seen_sentences: set[str] = set()
+
+    def _emit_sentence(candidate: str) -> Iterator[str]:
+        normalized = candidate.strip()
+        if len(normalized) < 3:
+            return
+        if normalized in seen_sentences:
+            return
+        seen_sentences.add(normalized)
+        yield normalized
 
     for token in token_stream:
         if token is None:
@@ -675,7 +726,7 @@ def iter_sentences_from_token_stream(
             sentence = buffer[:max_buffer_length].strip()
             buffer = buffer[max_buffer_length:]
             if sentence:
-                yield sentence
+                yield from _emit_sentence(sentence)
 
         while True:
             matched = punctuation_regex.search(buffer)
@@ -686,12 +737,12 @@ def iter_sentences_from_token_stream(
             sentence = buffer[:split_index].strip()
             buffer = buffer[split_index:]
             if sentence:
-                yield sentence
+                yield from _emit_sentence(sentence)
 
     if flush_tail:
         tail = buffer.strip()
         if tail:
-            yield tail
+            yield from _emit_sentence(tail)
 
 
 def _extract_audio_base64(payload: Any) -> str | None:
@@ -856,12 +907,14 @@ def stream_tts_audio_chunks(
         return any(marker in text_msg for marker in markers)
 
     emitted = False
-    max_attempts = 3
+    max_attempts = 4
     last_exc: Exception | None = None
+    backoff_seconds = [0.5, 1.0, 2.0]
 
     for attempt in range(1, max_attempts + 1):
         emitted_stream_chunk = False
         fallback_audio_url: str | None = None
+        attempt_chunks: list[bytes] = []
 
         try:
             response_stream = MultiModalConversation.call(
@@ -883,9 +936,8 @@ def stream_tts_audio_chunks(
                         audio_chunk = b""
 
                     if audio_chunk:
-                        emitted = True
                         emitted_stream_chunk = True
-                        yield audio_chunk
+                        attempt_chunks.append(audio_chunk)
                         continue
 
                 if not emitted_stream_chunk:
@@ -904,10 +956,12 @@ def stream_tts_audio_chunks(
                     audio_chunk = b""
 
                 if audio_chunk:
-                    emitted = True
-                    yield audio_chunk
+                    attempt_chunks.append(audio_chunk)
 
-            if emitted:
+            if attempt_chunks:
+                emitted = True
+                for chunk in attempt_chunks:
+                    yield chunk
                 break
 
         except Exception as exc:
@@ -918,8 +972,11 @@ def stream_tts_audio_chunks(
 
             if attempt < max_attempts and _is_transient_tts_error(exc):
                 print(f"[TTS] transient network/ssl error, retry {attempt}/{max_attempts}: {exc}")
-                time.sleep(0.4 * attempt)
+                time.sleep(backoff_seconds[attempt - 1])
                 continue
+
+            if attempt < max_attempts:
+                print(f"[TTS] non-network error, stop retry: {exc}")
 
             print(f"[TTS] variant=1 call failed: {exc}")
             raise RuntimeError("TTS 未返回可用音频 chunk，请检查模型、参数和账号权限") from exc
@@ -941,6 +998,8 @@ def stream_interview_tts_from_tokens(
     ordered_output: bool = False,
     max_buffer_length: int | None = 120,
     voice: str = "Elias",
+    allow_retry_on_failed: bool = True,
+    max_failed_retries: int = 1,
 ) -> None:
     """将 LLM token 流转换为流式语音并回调音频 chunk。
 
@@ -960,28 +1019,67 @@ def stream_interview_tts_from_tokens(
         ordered_output: 是否按句子顺序输出音频 chunk。
         max_buffer_length: 无标点时的强制切句长度。
         voice: 朗读音色。
+        allow_retry_on_failed: 失败后是否允许同一句重新合成。
+        max_failed_retries: 同一句在 failed 状态下允许重试的最大次数。
     """
     if on_audio_chunk is None:
         raise ValueError("on_audio_chunk 不能为空")
 
     if max_workers <= 0:
         raise ValueError("max_workers 必须大于 0")
+    if max_failed_retries < 0:
+        raise ValueError("max_failed_retries 不能小于 0")
 
     errors: list[Exception] = []
+    # 句子级状态机：避免重复句子被重复提交或并发重复合成。
+    sentence_states: dict[str, str] = {}
+    failed_retry_counts: dict[str, int] = {}
+    sentence_state_lock = threading.Lock()
+
+    def _normalize_sentence(sentence: str) -> str:
+        return (sentence or "").strip()
+
+    def _try_mark_synthesizing(sentence: str) -> bool:
+        normalized = _normalize_sentence(sentence)
+        if not normalized:
+            return False
+
+        with sentence_state_lock:
+            current = sentence_states.get(normalized)
+            # 已在队列、合成中或完成，均不再重复合成。
+            if current in {"pending", "synthesizing", "done"}:
+                return False
+            # failed 状态按开关和次数限制决定是否允许重试。
+            if current == "failed":
+                if not allow_retry_on_failed:
+                    return False
+                retried = failed_retry_counts.get(normalized, 0)
+                if retried >= max_failed_retries:
+                    return False
+                failed_retry_counts[normalized] = retried + 1
+            sentence_states[normalized] = "pending"
+            sentence_states[normalized] = "synthesizing"
+            return True
+
+    def _mark_done(sentence: str) -> None:
+        normalized = _normalize_sentence(sentence)
+        if not normalized:
+            return
+        with sentence_state_lock:
+            sentence_states[normalized] = "done"
+
+    def _mark_failed(sentence: str) -> None:
+        normalized = _normalize_sentence(sentence)
+        if not normalized:
+            return
+        with sentence_state_lock:
+            sentence_states[normalized] = "failed"
 
     def _collect_sentence_audio(sentence: str) -> tuple[str, list[bytes]]:
-        audio_chunks: list[bytes] = []
-        for audio_chunk in stream_tts_audio_chunks(
-            sentence=sentence,
-            api_key=api_key,
-            model=model,
-            voice=voice,
-            api_base_url=api_base_url,
-        ):
-            audio_chunks.append(audio_chunk)
-        return sentence, audio_chunks
+        if not _try_mark_synthesizing(sentence):
+            return sentence, []
 
-    def _stream_sentence_audio(sentence: str) -> None:
+        audio_chunks: list[bytes] = []
         try:
             for audio_chunk in stream_tts_audio_chunks(
                 sentence=sentence,
@@ -990,10 +1088,30 @@ def stream_interview_tts_from_tokens(
                 voice=voice,
                 api_base_url=api_base_url,
             ):
-                print("[TTS] sending chunk to player")
+                audio_chunks.append(audio_chunk)
+            _mark_done(sentence)
+        except Exception:
+            _mark_failed(sentence)
+            raise
+        return sentence, audio_chunks
+
+    def _stream_sentence_audio(sentence: str) -> None:
+        if not _try_mark_synthesizing(sentence):
+            return
+
+        try:
+            for audio_chunk in stream_tts_audio_chunks(
+                sentence=sentence,
+                api_key=api_key,
+                model=model,
+                voice=voice,
+                api_base_url=api_base_url,
+            ):
                 on_audio_chunk(audio_chunk, sentence)
+            _mark_done(sentence)
         except Exception as exc:
             print(f"TTS thread error: {exc}")
+            _mark_failed(sentence)
             errors.append(exc)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
