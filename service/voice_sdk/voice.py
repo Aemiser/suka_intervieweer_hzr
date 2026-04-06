@@ -12,7 +12,7 @@ import uuid
 import queue
 import wave
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -1000,6 +1000,7 @@ def stream_interview_tts_from_tokens(
     voice: str = "Elias",
     allow_retry_on_failed: bool = True,
     max_failed_retries: int = 1,
+    start_playback_after_sentences: int = 2,
 ) -> None:
     """将 LLM token 流转换为流式语音并回调音频 chunk。
 
@@ -1021,6 +1022,7 @@ def stream_interview_tts_from_tokens(
         voice: 朗读音色。
         allow_retry_on_failed: 失败后是否允许同一句重新合成。
         max_failed_retries: 同一句在 failed 状态下允许重试的最大次数。
+        start_playback_after_sentences: 顺序输出时，至少缓存多少句后再开始播放。
     """
     if on_audio_chunk is None:
         raise ValueError("on_audio_chunk 不能为空")
@@ -1029,6 +1031,8 @@ def stream_interview_tts_from_tokens(
         raise ValueError("max_workers 必须大于 0")
     if max_failed_retries < 0:
         raise ValueError("max_failed_retries 不能小于 0")
+    if start_playback_after_sentences <= 0:
+        raise ValueError("start_playback_after_sentences 必须大于 0")
 
     errors: list[Exception] = []
     # 句子级状态机：避免重复句子被重复提交或并发重复合成。
@@ -1115,27 +1119,122 @@ def stream_interview_tts_from_tokens(
             errors.append(exc)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
-        for sentence in iter_sentences_from_token_stream(
-            token_stream=token_stream,
-            sentence_punctuations=sentence_punctuations,
-            flush_tail=True,
-            max_buffer_length=max_buffer_length,
-        ):
-            if ordered_output:
-                futures.append(executor.submit(_collect_sentence_audio, sentence))
-            else:
-                futures.append(executor.submit(_stream_sentence_audio, sentence))
-
         if ordered_output:
-            for future in futures:
+            failed_result = object()
+            completed_results: dict[int, tuple[str, list[bytes]] | object] = {}
+            submitted_count = 0
+            next_emit_index = 0
+            producer_done = threading.Event()
+            sync_lock = threading.Lock()
+            sync_condition = threading.Condition(sync_lock)
+            submission_error: list[Exception] = []
+            started_playback = False
+
+            def _capture_result(index: int, future: Future[tuple[str, list[bytes]]]) -> None:
                 try:
-                    sentence, audio_chunks = future.result()
+                    result = future.result()
+                except Exception as exc:
+                    with sync_condition:
+                        completed_results[index] = failed_result
+                        errors.append(exc)
+                        sync_condition.notify_all()
+                    return
+
+                with sync_condition:
+                    completed_results[index] = result
+                    sync_condition.notify_all()
+
+            def _producer() -> None:
+                nonlocal submitted_count
+                try:
+                    for sentence in iter_sentences_from_token_stream(
+                        token_stream=token_stream,
+                        sentence_punctuations=sentence_punctuations,
+                        flush_tail=True,
+                        max_buffer_length=max_buffer_length,
+                    ):
+                        with sync_condition:
+                            sentence_index = submitted_count
+                            submitted_count += 1
+
+                        future = executor.submit(_collect_sentence_audio, sentence)
+                        future.add_done_callback(
+                            lambda future, index=sentence_index: _capture_result(index, future)
+                        )
+                except Exception as exc:
+                    submission_error.append(exc)
+                finally:
+                    producer_done.set()
+                    with sync_condition:
+                        sync_condition.notify_all()
+
+            def _can_start_playback() -> bool:
+                nonlocal started_playback
+                if started_playback:
+                    return True
+
+                with sync_condition:
+                    available_count = submitted_count
+                    if available_count == 0:
+                        return False
+
+                    warmup_target = min(start_playback_after_sentences, available_count)
+                    if producer_done.is_set() and available_count < start_playback_after_sentences:
+                        if all(index in completed_results for index in range(available_count)):
+                            started_playback = True
+                            return True
+                        return False
+
+                    if all(index in completed_results for index in range(warmup_target)):
+                        started_playback = True
+                        return True
+
+                return False
+
+            def _flush_ready_results() -> None:
+                nonlocal next_emit_index
+                while True:
+                    with sync_condition:
+                        if next_emit_index not in completed_results:
+                            return
+                        result = completed_results.pop(next_emit_index)
+
+                    next_emit_index += 1
+                    if result is failed_result:
+                        continue
+
+                    sentence, audio_chunks = result
                     for audio_chunk in audio_chunks:
                         on_audio_chunk(audio_chunk, sentence)
-                except Exception as exc:
-                    errors.append(exc)
+
+            producer_thread = threading.Thread(target=_producer, daemon=True)
+            producer_thread.start()
+
+            try:
+                while True:
+                    if _can_start_playback():
+                        _flush_ready_results()
+
+                    with sync_condition:
+                        finished = producer_done.is_set() and next_emit_index >= submitted_count and not completed_results
+                        if finished:
+                            break
+                        sync_condition.wait(timeout=0.05)
+            finally:
+                producer_thread.join()
+
+            if submission_error:
+                errors.extend(submission_error)
         else:
+            futures = []
+            for sentence in iter_sentences_from_token_stream(
+                token_stream=token_stream,
+                sentence_punctuations=sentence_punctuations,
+                flush_tail=True,
+                max_buffer_length=max_buffer_length,
+            ):
+                futures.append(executor.submit(_stream_sentence_audio, sentence))
+
             for future in futures:
                 try:
                     future.result()

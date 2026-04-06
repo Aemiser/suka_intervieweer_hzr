@@ -1133,7 +1133,7 @@ class InterviewPanel(QWidget):
                     sentence_punctuations=frozenset({".", "。", "!", "！", "?", "？", ";", "；", ":", "：", "\n"}),
                     ordered_output=False,
                     max_workers=1,
-                    max_buffer_length=160,
+                    max_buffer_length=64,
                 )
             except Exception as exc:
                 print(f"[TTS] interviewer stream error: {exc}")
