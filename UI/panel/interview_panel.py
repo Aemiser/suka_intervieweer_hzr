@@ -1,17 +1,17 @@
-# UI/interview_panel.py
+# UI/panel/interview_panel.py
 """
-面试主界面 — 流式重构版
-对接 InterviewEngine 的流式接口（get_first_question_stream /
-submit_answer_stream / finish_session_stream），实现：
-  - 真实逐 token 流式渲染（与 agent_panel 同构）
-  - 新内容发布时自动滚动到底部
-  - 用户已滚离底部时显示「↓ 新消息」浮动提示
+面试主界面。
+
+TTS 职责已全部下移至 ChatBubble：
+  - 创建 AI 气泡时传入 enable_tts=True
+  - 流结束时调用 bubble.stop_tts()
+  - 强制关闭时调用 bubble.stop_tts(force=True)
+  - Panel 层不再持有任何 TTS 状态或线程
 """
+
 import json
 import os
-import queue
 import threading
-from datetime import datetime
 
 from PySide6.QtCore import Qt, Signal, QThread, QObject, QTimer, QEvent
 from PySide6.QtWidgets import (
@@ -19,57 +19,47 @@ from PySide6.QtWidgets import (
     QComboBox, QLineEdit, QTextEdit, QScrollArea, QFrame,
     QMessageBox, QSizePolicy,
 )
-from PySide6.QtCore import Qt, Signal, QThread, QObject, QTimer, QEvent
 from PySide6.QtGui import QColor, QKeyEvent
+from datetime import datetime
 
 from UI.components import (
-    Theme as T, ChatBubble, ScoreCardBubble, TypingIndicator, StreamSignals,
+    T, ChatBubble, ScoreCardBubble, TypingIndicator,
     ButtonFactory, GLOBAL_QSS, input_qss, combo_qss,
 )
 from service.voice_sdk.voice import (
     VoiceRecorder, STTClient, VoiceResult, RecordBundle,
-    StreamingAudioPlayer, stream_interview_tts_from_tokens,
+    StreamingAudioPlayer,
 )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 语音 Worker（录音）
+# ══════════════════════════════════════════════════════════════════════════════
+
 class VoiceWorker(QObject):
-    finished = Signal(object)  # RecordBundle，最终结果
-    recorded = Signal(str, float)  # (audio_path, duration)，录音完成信号
-    error = Signal(str)
+    finished = Signal(object)   # RecordBundle
+    error    = Signal(str)
 
     def __init__(self):
         super().__init__()
         self.recorder = VoiceRecorder()
 
     def stop(self):
-        print("[DEBUG] VoiceWorker.stop() 被调用")
         self.recorder.stop()
 
     def cancel(self):
-        print("[DEBUG] VoiceWorker.cancel() 被调用")
         self.recorder.cancel()
 
     def run(self):
-        print("[DEBUG] VoiceWorker.run() 开始执行")
         try:
-            print("[DEBUG] 开始录音，最长 60 秒...")
             audio_path, duration = self.recorder.record(60)
-            print(f"[DEBUG] 录音完成，文件路径：{audio_path}")
-
             if not audio_path or duration <= 0:
                 raise RuntimeError("录音路径或时长无效")
-
-            import os
             if not os.path.exists(audio_path):
                 raise RuntimeError(f"录音文件不存在：{audio_path}")
+            if os.path.getsize(audio_path) < 1000:
+                raise RuntimeError("录音文件过小，可能未成功捕获音频")
 
-            file_size = os.path.getsize(audio_path)
-            print(f"[DEBUG] 录音文件大小：{file_size} bytes")
-
-            if file_size < 1000:
-                raise RuntimeError(f"录音文件过小（{file_size} bytes），可能未成功捕获音频")
-
-            # 仅完成录音并进入预发送状态，不在此处执行耗时 ASR
             bundle = RecordBundle(
                 transcript="",
                 audio_path=audio_path,
@@ -79,25 +69,17 @@ class VoiceWorker(QObject):
                 non_speech=False,
             )
             self.finished.emit(bundle)
-
         except Exception as e:
-            # 捕获业务异常，避免子线程崩溃导致主线程出现 Destroyed 问题
-            error_msg = str(e)
-            print(f"[ERROR] VoiceWorker 执行失败：{error_msg}")
-            self.error.emit(error_msg)
-        except BaseException as e:
-            # 捕获所有异常（包括 SystemExit、KeyboardInterrupt 等）以保护主线程
-            error_msg = f"音频线程致命错误：{e}"
-            print(f"[FATAL] {error_msg}")
-            self.error.emit(error_msg)
-        finally:
-            # 依照“微信模式”要求，录音文件不在此处立即删除，交给业务层在用户取消/发送后处理
-            print("[DEBUG] 录音工作流完成，保持音频文件供发送或取消操作")
+            self.error.emit(str(e))
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ASR Worker（语音转文字）
+# ══════════════════════════════════════════════════════════════════════════════
 
 class ASRWorker(QObject):
-    finished = Signal(object)  # VoiceResult
-    error = Signal(str)
+    finished = Signal(object)   # VoiceResult
+    error    = Signal(str)
 
     def __init__(self, audio_path: str):
         super().__init__()
@@ -111,37 +93,25 @@ class ASRWorker(QObject):
         except Exception as e:
             self.error.emit(str(e))
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 面试 Worker（LLM 流式）
+# ══════════════════════════════════════════════════════════════════════════════
+
 class InterviewWorker(QObject):
-    """
-    所有耗时操作（含流式 IO）在独立线程运行，通过 Signal 与 UI 通信。
-
-    流式协议（与 interview_engine 约定）：
-      __EVAL__:{json}\\n      → 评分数据
-      __IS_FINISHED__\\n      → 本轮结束标记
-      __FINISHED__\\n         → 面试已全部结束
-      __SCORE__:{float}\\n    → 报告总分
-      __ERROR__:{msg}\\n      → 错误
-      其余                   → 正常文本 token
-    """
-
-    # ── 请求信号（主线程 → Worker）────────────────────────────────────────────
-    request_start  = Signal(str, int)   # name, job_id
-    request_answer = Signal(str)        # answer text
+    request_start  = Signal(str, int)
+    request_answer = Signal(str)
     request_finish = Signal()
 
-    # ── 结果信号（Worker → 主线程）────────────────────────────────────────────
-    session_started     = Signal(int)       # session_id
-    stream_chunk        = Signal(str)       # 普通文本 token
-    eval_received       = Signal(dict)      # 评分数据
-    is_finished_flag    = Signal()          # 本轮已是最后一轮
-    all_finished        = Signal()          # 面试全部完毕（无更多题目）
-    score_received      = Signal(float)     # 报告总分
-    stream_done         = Signal(str)       # 流结束，携带阶段标识
-    error_occurred      = Signal(str)
-    voice_result        = Signal(object)    # VoiceResult
-    voice_error         = Signal(str)
+    session_started  = Signal(int)
+    stream_chunk     = Signal(str)
+    eval_received    = Signal(dict)
+    is_finished_flag = Signal()
+    all_finished     = Signal()
+    score_received   = Signal(float)
+    stream_done      = Signal(str)
+    error_occurred   = Signal(str)
 
-    # 阶段标识常量
     PHASE_FIRST_Q = "first_q"
     PHASE_ANSWER  = "answer"
     PHASE_REPORT  = "report"
@@ -152,8 +122,6 @@ class InterviewWorker(QObject):
         self.db = db
         self.session_id: int | None = None
         self._is_finished = False
-
-    # ── 请求处理 ──────────────────────────────────────────────────────────────
 
     def on_start_requested(self, name: str, job_id: int):
         try:
@@ -170,12 +138,10 @@ class InterviewWorker(QObject):
             self.session_id = self.engine.start_session(student_id, job_id)
             self.session_started.emit(self.session_id)
 
-            # get_first_question_stream 内部已完成历史同步和落库
             for token in self.engine.get_first_question_stream(self.session_id):
                 self.stream_chunk.emit(token)
 
             self.stream_done.emit(self.PHASE_FIRST_Q)
-
         except Exception as e:
             self.error_occurred.emit(str(e))
 
@@ -185,31 +151,22 @@ class InterviewWorker(QObject):
             return
         try:
             self._is_finished = False
-
             for token in self.engine.submit_answer_stream(self.session_id, answer):
                 if token.startswith("__EVAL__:"):
-                    eval_data = json.loads(token[len("__EVAL__:"):].strip())
-                    self.eval_received.emit(eval_data)
-
+                    self.eval_received.emit(json.loads(token[len("__EVAL__:"):].strip()))
                 elif token == "__IS_FINISHED__\n":
                     self._is_finished = True
                     self.is_finished_flag.emit()
-
                 elif token == "__FINISHED__\n":
                     self.all_finished.emit()
                     self.stream_done.emit(self.PHASE_ANSWER)
                     return
-
                 elif token.startswith("__ERROR__:"):
                     self.error_occurred.emit(token[len("__ERROR__:"):].strip())
                     return
-
                 else:
                     self.stream_chunk.emit(token)
-
-            # submit_answer_stream 内部已完成历史同步和落库
             self.stream_done.emit(self.PHASE_ANSWER)
-
         except Exception as e:
             self.error_occurred.emit(str(e))
 
@@ -220,7 +177,6 @@ class InterviewWorker(QObject):
         try:
             overall_score = 0.0
             report_parts: list[str] = []
-
             for token in self.engine.finish_session_stream(self.session_id):
                 if token.startswith("__SCORE__:"):
                     overall_score = float(token[len("__SCORE__:"):].strip())
@@ -228,17 +184,15 @@ class InterviewWorker(QObject):
                 else:
                     report_parts.append(token)
                     self.stream_chunk.emit(token)
-
             report_text = "".join(report_parts)
             self.engine.confirm_finish(self.session_id, overall_score, report_text)
             self.stream_done.emit(self.PHASE_REPORT)
-
         except Exception as e:
             self.error_occurred.emit(str(e))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 「↓ 新消息」浮动提示按钮
+# 「↓ 新消息」浮动 Toast
 # ══════════════════════════════════════════════════════════════════════════════
 
 class NewMessageToast(QPushButton):
@@ -248,26 +202,18 @@ class NewMessageToast(QPushButton):
         self.setFixedSize(110, 34)
         self.setStyleSheet(f"""
             QPushButton {{
-                background: {T.NEON};
-                color: #0a0a0f;
-                border: none;
-                border-radius: 17px;
-                font-size: 12px;
-                font-weight: 700;
-                font-family: {T.FONT};
-                padding: 0 12px;
+                background: {T.NEON}; color: #0a0a0f;
+                border: none; border-radius: 17px;
+                font-size: 12px; font-weight: 700;
+                font-family: {T.FONT}; padding: 0 12px;
             }}
-            QPushButton:hover {{
-                background: {T.PURPLE};
-                color: #ffffff;
-            }}
+            QPushButton:hover {{ background: {T.PURPLE}; color: #ffffff; }}
         """)
         self.hide()
 
-    def update_position(self, parent_rect):
-        x = parent_rect.width() - self.width() - 18
-        y = parent_rect.height() - self.height() - 14
-        self.move(x, y)
+    def update_position(self, parent_rect) -> None:
+        self.move(parent_rect.width() - self.width() - 18,
+                  parent_rect.height() - self.height() - 14)
         self.raise_()
 
 
@@ -282,39 +228,31 @@ class InterviewPanel(QWidget):
         self.engine = engine
         self._session_id: int | None = None
 
-        self._is_streaming = False
+        self._is_streaming         = False
         self._current_ai_bubble: ChatBubble | None = None
         self._typing_indicator: TypingIndicator | None = None
-        self._stream_phase: str = ""
-        self._pending_is_finished = False
+        self._stream_phase         = ""
+        self._pending_is_finished  = False
 
-        # ── 语音录制状态 ───────────────────────────────────────────────────────
-        self._is_voice_recording = False
+        # 语音录制状态
+        self._is_voice_recording    = False
         self._voice_thread: QThread | None = None
         self._voice_worker: VoiceWorker | None = None
         self._pending_voice_bundle: RecordBundle | None = None
-        self._is_asr_processing = False
+        self._is_asr_processing     = False
         self._asr_thread: QThread | None = None
         self._asr_worker: ASRWorker | None = None
         self._pending_voice_auto_send = False
-        self._voice_bubble_audio_map: dict[QObject, str] = {}
-        self._voice_bubble_widget_map: dict[QObject, ChatBubble] = {}
-        self._voice_bubble_default_style: dict[ChatBubble, str] = {}
+        self._voice_bubble_audio_map:   dict[QObject, str]       = {}
+        self._voice_bubble_widget_map:  dict[QObject, ChatBubble]= {}
+        self._voice_bubble_default_style: dict[ChatBubble, str]  = {}
         self._playing_bubble: ChatBubble | None = None
 
-        # ── 面试官语音播报 ──────────────────────────────────────────────────
-        self._interviewer_tts_queue: queue.Queue[str | None] | None = None
-        self._interviewer_tts_thread: threading.Thread | None = None
-        self._interviewer_tts_player: StreamingAudioPlayer | None = None
-        self._interviewer_tts_started = False
-        self._tts_last_token: str = ""
-        self._tts_recent_sentence_cache: list[str] = []
-        self._tts_last_playback_sentence: str = ""
+        # 滚动状态
+        self._user_scrolled_up = False
+        self._has_new_content  = False
 
-        # ── 滚动状态 ──────────────────────────────────────────────────────────
-        self._user_scrolled_up = False        # 用户是否手动滚离了底部
-        self._has_new_content = False         # 是否有未读新内容
-
+        # ── 面试 Worker ────────────────────────────────────────────────────────
         self._worker = InterviewWorker(engine, db)
         self._thread = QThread()
         self._worker.moveToThread(self._thread)
@@ -339,7 +277,7 @@ class InterviewPanel(QWidget):
     # UI 构建
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         self.setStyleSheet(GLOBAL_QSS + input_qss() + combo_qss())
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -446,13 +384,15 @@ class InterviewPanel(QWidget):
         )
         f_lay.addWidget(self.status_lbl)
 
-        # 语音预览条（微信模式）
+        # 语音预览条
         self.voice_preview_frame = QFrame()
-        self.voice_preview_frame.setStyleSheet(f"background: {T.SURFACE}; border: 1px solid {T.BORDER}; border-radius: 8px;")
+        self.voice_preview_frame.setStyleSheet(
+            f"background: {T.SURFACE}; border: 1px solid {T.BORDER}; border-radius: 8px;"
+        )
         self.voice_preview_frame.setVisible(False)
-        voice_preview_layout = QHBoxLayout(self.voice_preview_frame)
-        voice_preview_layout.setContentsMargins(8, 4, 8, 4)
-        voice_preview_layout.setSpacing(8)
+        vp_lay = QHBoxLayout(self.voice_preview_frame)
+        vp_lay.setContentsMargins(8, 4, 8, 4)
+        vp_lay.setSpacing(8)
 
         self.voice_preview_lbl = QLabel("")
         self.voice_preview_lbl.setStyleSheet(f"color: {T.TEXT}; font-size:12px;")
@@ -474,14 +414,14 @@ class InterviewPanel(QWidget):
         self.voice_cancel_send_btn.setFixedWidth(96)
         self.voice_cancel_send_btn.clicked.connect(self._cancel_pending_voice)
 
-        voice_preview_layout.addWidget(self.voice_preview_lbl)
-        voice_preview_layout.addWidget(self.voice_play_btn)
-        voice_preview_layout.addWidget(self.voice_send_confirm_btn)
-        voice_preview_layout.addWidget(self.voice_transcribe_btn)
-        voice_preview_layout.addWidget(self.voice_cancel_send_btn)
-
+        vp_lay.addWidget(self.voice_preview_lbl)
+        vp_lay.addWidget(self.voice_play_btn)
+        vp_lay.addWidget(self.voice_send_confirm_btn)
+        vp_lay.addWidget(self.voice_transcribe_btn)
+        vp_lay.addWidget(self.voice_cancel_send_btn)
         f_lay.addWidget(self.voice_preview_frame)
 
+        # 输入行
         input_row = QHBoxLayout()
         input_row.setSpacing(10)
 
@@ -517,17 +457,18 @@ class InterviewPanel(QWidget):
     # 流式 chunk 处理
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _on_chunk(self, chunk: str):
+    def _on_chunk(self, chunk: str) -> None:
         if self._typing_indicator is not None:
             self._remove_typing_indicator()
 
-        # 只对面试官问题/追问做语音播报，报告阶段保持静默
-        if self._stream_phase in (InterviewWorker.PHASE_FIRST_Q, InterviewWorker.PHASE_ANSWER):
-            self._ensure_interviewer_tts_started()
-            self._feed_interviewer_tts_token(chunk)
-
         if self._current_ai_bubble is None:
-            self._current_ai_bubble = ChatBubble("ai")
+            # 面试官/助手问题阶段开启 TTS；报告阶段静默
+            enable_tts = self._stream_phase in (
+                InterviewWorker.PHASE_FIRST_Q,
+                InterviewWorker.PHASE_ANSWER,
+            )
+            self._current_ai_bubble = ChatBubble("ai", enable_tts=enable_tts)
+            self._current_ai_bubble.start_tts()  # 幂等：enable_tts=False 时无操作
             self._chat_layout.insertWidget(
                 self._chat_layout.count() - 1, self._current_ai_bubble
             )
@@ -539,30 +480,22 @@ class InterviewPanel(QWidget):
     # 信号槽
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _on_session_started(self, session_id: int):
+    def _on_session_started(self, session_id: int) -> None:
         self._session_id = session_id
         self._stream_phase = InterviewWorker.PHASE_FIRST_Q
         self._is_streaming = True
-        self._interviewer_tts_started = False
         self._add_typing_indicator()
         self._set_loading(True, "AI 面试官正在出题...")
 
-    def _on_eval_received(self, data: dict):
+    def _on_eval_received(self, data: dict) -> None:
         class _FakeEval:
             def __init__(self, d):
-                self.overall_score  = d.get("overall_score",  d.get("overall",  0))
-                self.tech_score     = d.get("tech_score",     d.get("tech",     0))
-                self.logic_score    = d.get("logic_score",    d.get("logic",    0))
-                self.depth_score    = d.get("depth_score",    d.get("depth",    0))
-                self.clarity_score  = d.get("clarity_score",  d.get("clarity",  0))
-                self.suggestion     = d.get("suggestion",     d.get("comment",  ""))
-                self.overall = self.overall_score
-                self.tech    = self.tech_score
-                self.logic   = self.logic_score
-                self.depth   = self.depth_score
-                self.clarity = self.clarity_score
-                self.comment = self.suggestion
-            def to_dict(self): return data
+                self.overall_score  = d.get("overall_score", d.get("overall",  0))
+                self.tech_score     = d.get("tech_score",    d.get("tech",     0))
+                self.logic_score    = d.get("logic_score",   d.get("logic",    0))
+                self.depth_score    = d.get("depth_score",   d.get("depth",    0))
+                self.clarity_score  = d.get("clarity_score", d.get("clarity",  0))
+                self.suggestion     = d.get("suggestion",    d.get("comment",  ""))
 
         if self._typing_indicator is not None:
             self._chat_layout.removeWidget(self._typing_indicator)
@@ -575,23 +508,23 @@ class InterviewPanel(QWidget):
             )
             self._notify_new_content()
 
-    def _on_is_finished_flag(self):
+    def _on_is_finished_flag(self) -> None:
         self._pending_is_finished = True
 
-    def _on_all_finished(self):
+    def _on_all_finished(self) -> None:
         self._add_system_msg("面试已结束，请点击「结束面试」查看报告。")
         self.status_lbl.setText("题目已完成，请点击「结束面试」生成报告")
         self._set_input_enabled(False)
 
-    def _on_score_received(self, score: float):
+    def _on_score_received(self, score: float) -> None:
         self._add_system_msg(f"━━  综合得分：{score}/10  ━━")
 
-    def _on_stream_done(self, phase: str):
+    def _on_stream_done(self, phase: str) -> None:
+        # 通知当前气泡 TTS 流结束
+        if self._current_ai_bubble is not None:
+            self._current_ai_bubble.stop_tts()
         self._current_ai_bubble = None
         self._is_streaming = False
-
-        if phase in (InterviewWorker.PHASE_FIRST_Q, InterviewWorker.PHASE_ANSWER):
-            self._stop_interviewer_tts()
 
         if phase == InterviewWorker.PHASE_FIRST_Q:
             self._set_loading(False)
@@ -617,11 +550,12 @@ class InterviewPanel(QWidget):
             self.job_combo.setEnabled(True)
             self._session_id = None
 
-    def _on_error(self, msg: str):
+    def _on_error(self, msg: str) -> None:
         self._remove_typing_indicator()
+        if self._current_ai_bubble is not None:
+            self._current_ai_bubble.stop_tts(force=True)
         self._current_ai_bubble = None
         self._is_streaming = False
-        self._stop_interviewer_tts()
         self._set_loading(False)
         self._set_input_enabled(True)
         self.start_btn.setEnabled(True)
@@ -630,10 +564,10 @@ class InterviewPanel(QWidget):
         QMessageBox.critical(self, "错误", f"发生错误：{msg}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # 逻辑控制
+    # 业务控制
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _load_jobs(self):
+    def _load_jobs(self) -> None:
         self.job_combo.clear()
         try:
             rows = self.db.fetchall("SELECT id, name FROM job_position")
@@ -642,7 +576,7 @@ class InterviewPanel(QWidget):
         except Exception:
             self.job_combo.addItem("暂无岗位", 0)
 
-    def _start_interview(self):
+    def _start_interview(self) -> None:
         name = self.name_input.text().strip()
         if not name:
             self._show_toast("请输入姓名")
@@ -657,56 +591,58 @@ class InterviewPanel(QWidget):
         self.job_combo.setEnabled(False)
         self._clear_chat()
         self._user_scrolled_up = False
-        self._has_new_content = False
+        self._has_new_content  = False
         self._toast.hide()
         self._worker.request_start.emit(name, job_id)
 
-    def _send_answer(self):
+    def _send_answer(self) -> None:
         if self._is_streaming:
             return
         answer = self.answer_input.toPlainText().strip()
         if not answer:
             return
-
         self.answer_input.clear()
         self._add_bubble("user", answer)
         self._submit_answer_request(answer)
 
-    def _submit_answer_request(self, answer: str):
-        """统一的提交流程，文本发送与语音发送共用。"""
+    def _submit_answer_request(self, answer: str) -> None:
         if self._is_streaming:
             return
-
         self._pending_is_finished = False
         self._stream_phase = InterviewWorker.PHASE_ANSWER
         self._is_streaming = True
-        self._interviewer_tts_started = False
         self._add_typing_indicator()
         self._set_loading(True, "AI 正在思考...")
         self._set_input_enabled(False)
         self._worker.request_answer.emit(answer)
 
-    def _on_voice_btn_click(self):
-        if self._is_streaming:
-            return
+    def _finish_interview(self) -> None:
+        self._set_loading(True, "正在生成最终报告...")
+        self._set_input_enabled(False)
+        self.finish_btn.setEnabled(False)
+        self._stream_phase = InterviewWorker.PHASE_REPORT
+        self._is_streaming = True
+        self._add_system_msg("━━━━━━  面试结束，正在生成报告  ━━━━━━")
+        self._add_typing_indicator()
+        self._worker.request_finish.emit()
 
-        if self._is_asr_processing:
-            QMessageBox.information(self, "请稍候", "正在转文字，请等待完成后再录音。")
+    # ══════════════════════════════════════════════════════════════════════════
+    # 语音录制
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _on_voice_btn_click(self) -> None:
+        if self._is_streaming or self._is_asr_processing:
             return
 
         if self._is_voice_recording:
-            # 录音过程中再次点击 = 立即结束
             if self._voice_worker:
-                print("[DEBUG] 用户点击停止，发送停止信号到 Worker")
                 self._voice_worker.stop()
-            # 立即更新 UI，不要等待
             self.voice_btn.setText("停止中...")
             self.voice_btn.setEnabled(False)
             self.voice_cancel_btn.setEnabled(False)
             self.status_lbl.setText("正在结束录音...")
             return
 
-        # 开始录音
         self._cancel_pending_voice()
         self._is_voice_recording = True
         self.voice_btn.setText("停止录音")
@@ -715,107 +651,83 @@ class InterviewPanel(QWidget):
         self.voice_cancel_btn.setEnabled(True)
         self.answer_input.setEnabled(False)
         self.send_btn.setEnabled(False)
-        self.status_lbl.setText("录音中... 点击“停止录音”进入预发送")
+        self.status_lbl.setText("录音中... 点击停止录音进入预发送")
 
-        # 若旧线程仍存在，先安全收尾，避免 QThread 悬空。
         self._shutdown_thread("_voice_thread", "_voice_worker", stop_worker=True)
 
-        # 确保线程引用在实例上持有，便于生命周期管理
         self._voice_thread = QThread(self)
         self._voice_worker = VoiceWorker()
         self._voice_worker.moveToThread(self._voice_thread)
 
-        # 启动及信号连接
         self._voice_thread.started.connect(self._voice_worker.run)
-
-        # 业务逻辑：收到结果或错误
         self._voice_worker.finished.connect(self._on_voice_result)
         self._voice_worker.error.connect(self._on_voice_error)
-
-        # UI 状态：重置按钮
         self._voice_worker.finished.connect(self._reset_voice_btn)
         self._voice_worker.error.connect(self._reset_voice_btn)
-
-        # 线程生命周期：完成 → 退出线程 → 清理
         self._voice_worker.finished.connect(self._voice_thread.quit)
         self._voice_worker.error.connect(self._voice_thread.quit)
-
         self._voice_thread.finished.connect(self._voice_worker.deleteLater)
         self._voice_thread.finished.connect(self._voice_thread.deleteLater)
         self._voice_thread.finished.connect(self._cleanup_voice_thread)
 
-        # 限制多次启动
-        self._voice_thread.setObjectName("VoiceThread")
-        self._voice_worker.setObjectName("VoiceWorker")
-
-        print("[DEBUG] 开始语音录制，线程启动...")
         self._voice_thread.start()
 
-    def _on_voice_result(self, voice_result: RecordBundle):
-        print(f"[DEBUG] 录音完成：{voice_result.duration:.2f}s")
+    def _on_voice_result(self, bundle: RecordBundle) -> None:
         self._reset_voice_btn()
-
-        # 进入预发送状态：发送语音 / 转文字 / 取消录音
-        self._pending_voice_bundle = voice_result
-        basename = os.path.basename(voice_result.audio_path)
-        self.voice_preview_lbl.setText(f"语音条：{voice_result.duration:.1f}s")
-        self.voice_preview_lbl.setToolTip(f"文件：{basename}")
+        self._pending_voice_bundle = bundle
+        self.voice_preview_lbl.setText(f"语音条：{bundle.duration:.1f}s")
+        self.voice_preview_lbl.setToolTip(f"文件：{os.path.basename(bundle.audio_path)}")
         self.voice_preview_frame.setVisible(True)
         self.voice_play_btn.setVisible(True)
         self.voice_send_confirm_btn.setEnabled(True)
         self.voice_transcribe_btn.setEnabled(True)
         self.voice_cancel_send_btn.setEnabled(True)
-
         self.answer_input.setPlainText("")
-        self.answer_input.setPlaceholderText("点击“转文字”后可在此编辑识别结果")
-
+        self.answer_input.setPlaceholderText("点击转文字后可在此编辑识别结果")
         self._set_input_enabled(True)
         self.status_lbl.setText("录音完成：可发送语音、转文字，或取消")
 
-    def _on_voice_error(self, error_msg: str):
-        print(f"[ERROR] 语音录制或识别失败：{error_msg}")
+    def _on_voice_error(self, error_msg: str) -> None:
         self._reset_voice_btn()
         self._cancel_pending_voice()
-        QMessageBox.critical(self, "语音输入失败", f"{error_msg}\n\n【诊断建议】\n- 检查麦克风是否连接\n- 确保麦克风有录音权限\n- 尝试靠近麦克风重新讲话\n- 检查网络连接和 API Key 配置")
+        QMessageBox.critical(self, "语音输入失败", error_msg)
 
-    def _on_voice_cancel(self):
+    def _on_voice_cancel(self) -> None:
         if self._voice_worker:
             self._voice_worker.cancel()
         self._reset_voice_btn()
         self._cancel_pending_voice()
 
-    def _cleanup_voice_thread(self):
+    def _cleanup_voice_thread(self) -> None:
         self._voice_thread = None
         self._voice_worker = None
 
-    def _on_voice_play(self):
-        if not self._pending_voice_bundle or not os.path.exists(self._pending_voice_bundle.audio_path):
+    def _on_voice_play(self) -> None:
+        if not self._pending_voice_bundle or not os.path.exists(
+            self._pending_voice_bundle.audio_path
+        ):
             QMessageBox.warning(self, "播放失败", "未找到语音文件。")
             return
-
         self._play_audio_file(self._pending_voice_bundle.audio_path)
 
-    def _play_audio_file(self, audio_path: str, bubble: ChatBubble | None = None):
+    def _play_audio_file(self, audio_path: str, bubble: ChatBubble | None = None) -> None:
         if bubble is not None:
             self._set_voice_bubble_playing(bubble)
-
-        # 简单实现：交给系统默认播放器（Windows/macOS/Linux）
         try:
-            if os.name == 'nt':
-                os.startfile(audio_path)
-            elif os.name == 'posix':
+            if os.name == "nt":
+                os.startfile(audio_path)  # type: ignore[attr-defined]
+            elif os.name == "posix":
                 import subprocess
-                subprocess.Popen(['xdg-open', audio_path])
+                subprocess.Popen(["xdg-open", audio_path])
             else:
-                QMessageBox.information(self, "播放", "当前系统不支持自动播放，请手动打开文件。")
+                QMessageBox.information(self, "播放", "当前系统不支持自动播放。")
         except Exception as e:
             self._clear_playing_bubble_highlight()
             QMessageBox.warning(self, "播放失败", f"无法播放音频文件：{e}")
 
-    def _set_voice_bubble_playing(self, bubble: ChatBubble):
+    def _set_voice_bubble_playing(self, bubble: ChatBubble) -> None:
         self._clear_playing_bubble_highlight()
         self._playing_bubble = bubble
-
         bubble.bubble.setStyleSheet(f"""
             QFrame#bubble {{
                 background: {T.USER_BUBBLE};
@@ -826,31 +738,24 @@ class InterviewPanel(QWidget):
         self.status_lbl.setText("正在播放语音...")
         QTimer.singleShot(1500, self._clear_playing_bubble_highlight)
 
-    def _clear_playing_bubble_highlight(self):
+    def _clear_playing_bubble_highlight(self) -> None:
         if self._playing_bubble is None:
             return
-
         default_style = self._voice_bubble_default_style.get(self._playing_bubble, "")
         self._playing_bubble.bubble.setStyleSheet(default_style)
         self._playing_bubble = None
-        if not self._is_streaming and not self._is_voice_recording and not self._is_asr_processing:
+        if not (self._is_streaming or self._is_voice_recording or self._is_asr_processing):
             self.status_lbl.setText("准备就绪")
 
-    def _send_voice_bundle(self):
+    def _send_voice_bundle(self) -> None:
         if not self._pending_voice_bundle:
-            QMessageBox.warning(self, "发送失败", "当前无待发送语音条")
             return
-        if self._is_streaming:
-            QMessageBox.information(self, "请稍候", "AI 正在回复中，请稍后再发送语音。")
-            return
-        if self._is_asr_processing:
-            QMessageBox.information(self, "请稍候", "正在转文字，请稍后。")
+        if self._is_streaming or self._is_asr_processing:
             return
 
         bundle = self._pending_voice_bundle
         self._append_voice_bubble(bundle)
 
-        # 发送语音后直接进入问答链路：有可用文本则直发，无文本则自动转写后发送。
         transcript = (bundle.transcript or "").strip()
         if transcript and not transcript.startswith("[未检测到语音内容]"):
             self._clear_pending_voice()
@@ -862,11 +767,8 @@ class InterviewPanel(QWidget):
         self.status_lbl.setText("语音已发送，正在自动转写...")
         self._start_asr_transcribe()
 
-    def _start_asr_transcribe(self):
-        if not self._pending_voice_bundle:
-            QMessageBox.warning(self, "转文字失败", "当前无可转写的录音")
-            return
-        if self._is_asr_processing:
+    def _start_asr_transcribe(self) -> None:
+        if not self._pending_voice_bundle or self._is_asr_processing:
             return
         if not os.path.exists(self._pending_voice_bundle.audio_path):
             QMessageBox.warning(self, "转文字失败", "录音文件不存在")
@@ -878,7 +780,6 @@ class InterviewPanel(QWidget):
         self.voice_cancel_send_btn.setEnabled(False)
         self.status_lbl.setText("正在转文字，请稍候...")
 
-        # 若旧 ASR 线程仍存在，先安全收尾，避免线程悬空。
         self._shutdown_thread("_asr_thread", "_asr_worker", stop_worker=False)
 
         self._asr_thread = QThread(self)
@@ -888,24 +789,22 @@ class InterviewPanel(QWidget):
         self._asr_thread.started.connect(self._asr_worker.run)
         self._asr_worker.finished.connect(self._on_asr_result)
         self._asr_worker.error.connect(self._on_asr_error)
-
         self._asr_worker.finished.connect(self._asr_thread.quit)
         self._asr_worker.error.connect(self._asr_thread.quit)
-
         self._asr_thread.finished.connect(self._asr_worker.deleteLater)
         self._asr_thread.finished.connect(self._asr_thread.deleteLater)
         self._asr_thread.finished.connect(self._cleanup_asr_thread)
 
         self._asr_thread.start()
 
-    def _on_asr_result(self, result: VoiceResult):
+    def _on_asr_result(self, result: VoiceResult) -> None:
         self._is_asr_processing = False
         self.voice_transcribe_btn.setEnabled(True)
         self.voice_send_confirm_btn.setEnabled(True)
         self.voice_cancel_send_btn.setEnabled(True)
 
-        transcript = (result.transcript or "").strip()
-        auto_send = self._pending_voice_auto_send
+        transcript  = (result.transcript or "").strip()
+        auto_send   = self._pending_voice_auto_send
         self._pending_voice_auto_send = False
 
         if transcript and not transcript.startswith("[未检测到语音内容]"):
@@ -919,15 +818,14 @@ class InterviewPanel(QWidget):
         else:
             if auto_send:
                 self.status_lbl.setText("语音发送失败：未识别到有效语音")
-                QMessageBox.warning(self, "发送失败", "未识别到有效语音，请重试或先转文字确认后发送。")
+                QMessageBox.warning(self, "发送失败", "未识别到有效语音，请重试。")
             else:
-                self.answer_input.setPlainText("")
-                self.answer_input.setPlaceholderText("未识别到有效语音，请重试或直接发送语音")
+                self.answer_input.setPlaceholderText("未识别到有效语音，请重试")
                 self.status_lbl.setText("未识别到有效语音，可重试转文字或直接发送语音")
 
         self.answer_input.setFocus()
 
-    def _on_asr_error(self, error_msg: str):
+    def _on_asr_error(self, error_msg: str) -> None:
         self._is_asr_processing = False
         self._pending_voice_auto_send = False
         self.voice_transcribe_btn.setEnabled(True)
@@ -936,31 +834,28 @@ class InterviewPanel(QWidget):
         self.status_lbl.setText("转文字失败")
         QMessageBox.critical(self, "转文字失败", error_msg)
 
-    def _cleanup_asr_thread(self):
+    def _cleanup_asr_thread(self) -> None:
         self._asr_thread = None
         self._asr_worker = None
 
-    def _append_voice_bubble(self, bundle: RecordBundle):
-        msg = f"▶ {bundle.duration:.1f}''"
+    def _append_voice_bubble(self, bundle: RecordBundle) -> None:
+        msg    = f"▶ {bundle.duration:.1f}''"
         bubble = ChatBubble("user", msg)
         self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
         self._notify_new_content()
         self._voice_bubble_default_style[bubble] = bubble.bubble.styleSheet()
 
-        # 语音气泡支持点击播放：点击文本区域、气泡主体或容器均可触发。
         targets = [bubble, bubble.bubble, bubble.text_view]
         for target in targets:
-            self._voice_bubble_audio_map[target] = bundle.audio_path
+            self._voice_bubble_audio_map[target]  = bundle.audio_path
             self._voice_bubble_widget_map[target] = bubble
             target.installEventFilter(self)
             target.setCursor(Qt.PointingHandCursor)
             target.setToolTip("点击播放语音")
 
-    def _cancel_pending_voice(self):
+    def _cancel_pending_voice(self) -> None:
         if self._is_asr_processing:
-            QMessageBox.information(self, "请稍候", "正在转文字，完成后再取消。")
             return
-
         if self._pending_voice_bundle:
             path = self._pending_voice_bundle.audio_path
             if os.path.exists(path):
@@ -975,48 +870,32 @@ class InterviewPanel(QWidget):
         self.answer_input.setPlaceholderText("输入你的回答... (Ctrl+Enter 发送)")
         self.status_lbl.setText("已取消录音")
 
-    def _clear_pending_voice(self):
-        # 取消状态但不删除历史已发送语音条
+    def _clear_pending_voice(self) -> None:
         self._pending_voice_bundle = None
         self.voice_preview_frame.setVisible(False)
         self.voice_preview_lbl.setText("")
         self.voice_play_btn.setVisible(False)
 
-    def _adapt_status_after_sending_voice(self):
-        self.status_lbl.setText("语音已发送")
-
-    def _reset_voice_btn(self):
+    def _reset_voice_btn(self) -> None:
         self._is_voice_recording = False
         self.voice_btn.setText("🎤 语音")
         self.voice_btn.setEnabled(True)
         self.voice_cancel_btn.setVisible(False)
 
-    def _finish_interview(self):
-        self._set_loading(True, "正在生成最终报告...")
-        self._set_input_enabled(False)
-        self.finish_btn.setEnabled(False)
-        self._stream_phase = InterviewWorker.PHASE_REPORT
-        self._is_streaming = True
-        self._stop_interviewer_tts()
-        self._add_system_msg("━━━━━━  面试结束，正在生成报告  ━━━━━━")
-        self._add_typing_indicator()
-        self._worker.request_finish.emit()
-
     # ══════════════════════════════════════════════════════════════════════════
     # 滚动 & Toast
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _on_scroll_changed(self, value: int):
+    def _on_scroll_changed(self, value: int) -> None:
         sb = self._scroll.verticalScrollBar()
-        at_bottom = value >= sb.maximum() - 10
-        if at_bottom:
+        if value >= sb.maximum() - 10:
             self._user_scrolled_up = False
-            self._has_new_content = False
+            self._has_new_content  = False
             self._toast.hide()
         else:
             self._user_scrolled_up = True
 
-    def _notify_new_content(self):
+    def _notify_new_content(self) -> None:
         if self._user_scrolled_up:
             self._has_new_content = True
             self._toast.update_position(self._scroll.rect())
@@ -1025,19 +904,19 @@ class InterviewPanel(QWidget):
         else:
             self._scroll_to_bottom()
 
-    def _jump_to_bottom(self):
+    def _jump_to_bottom(self) -> None:
         sb = self._scroll.verticalScrollBar()
         sb.setValue(sb.maximum())
         self._user_scrolled_up = False
-        self._has_new_content = False
+        self._has_new_content  = False
         self._toast.hide()
 
-    def _scroll_to_bottom(self):
+    def _scroll_to_bottom(self) -> None:
         QTimer.singleShot(50, lambda: self._scroll.verticalScrollBar().setValue(
             self._scroll.verticalScrollBar().maximum()
         ))
 
-    def _on_scroll_resize(self, event):
+    def _on_scroll_resize(self, event) -> None:
         QScrollArea.resizeEvent(self._scroll, event)
         if self._toast.isVisible():
             self._toast.update_position(self._scroll.rect())
@@ -1046,7 +925,7 @@ class InterviewPanel(QWidget):
     # UI 辅助
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _add_typing_indicator(self):
+    def _add_typing_indicator(self) -> None:
         if self._typing_indicator is not None:
             return
         self._typing_indicator = TypingIndicator()
@@ -1055,7 +934,7 @@ class InterviewPanel(QWidget):
         )
         self._scroll_to_bottom()
 
-    def _remove_typing_indicator(self):
+    def _remove_typing_indicator(self) -> None:
         if self._typing_indicator is None:
             return
         self._chat_layout.removeWidget(self._typing_indicator)
@@ -1063,17 +942,68 @@ class InterviewPanel(QWidget):
         self._typing_indicator.deleteLater()
         self._typing_indicator = None
 
-    def _add_bubble(self, role: str, text: str):
+    def _add_bubble(self, role: str, text: str) -> None:
         bubble = ChatBubble(role, text)
         self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
         self._notify_new_content()
 
-    def _add_score_bubble(self, eval_result):
+    def _add_score_bubble(self, eval_result) -> None:
         bubble = ScoreCardBubble(eval_result)
         self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
         self._notify_new_content()
 
-    def _shutdown_thread(self, thread_attr: str, worker_attr: str, stop_worker: bool = False) -> None:
+    def _add_system_msg(self, text: str) -> None:
+        bubble = ChatBubble("system", text)
+        self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
+        self._notify_new_content()
+
+    def _clear_chat(self) -> None:
+        self._clear_playing_bubble_highlight()
+        self._voice_bubble_audio_map.clear()
+        self._voice_bubble_widget_map.clear()
+        self._voice_bubble_default_style.clear()
+        while self._chat_layout.count() > 1:
+            item = self._chat_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _set_loading(self, loading: bool, msg: str = "") -> None:
+        if loading:
+            self.status_lbl.setText(f"⏳  {msg}")
+            self.status_lbl.setStyleSheet(
+                f"color: {T.NEON}; font-size: 12px; font-weight: 600;"
+            )
+        else:
+            self.status_lbl.setStyleSheet(
+                f"color: {T.TEXT_DIM}; font-size: 12px;"
+            )
+
+    def _set_input_enabled(self, enabled: bool) -> None:
+        self.answer_input.setEnabled(enabled)
+        self.voice_btn.setEnabled(enabled)
+        self.send_btn.setEnabled(enabled)
+        if enabled:
+            self.answer_input.setFocus()
+
+    def _show_toast(self, msg: str) -> None:
+        orig = self.status_lbl.text()
+        self.status_lbl.setText(f"⚠️  {msg}")
+        self.status_lbl.setStyleSheet(
+            f"color: {T.ACCENT}; font-weight: bold; font-size: 12px;"
+        )
+        QTimer.singleShot(2000, lambda: (
+            self.status_lbl.setText(orig),
+            self.status_lbl.setStyleSheet(
+                f"color: {T.TEXT_DIM}; font-size: 12px;"
+            ),
+        ))
+
+    def _shutdown_thread(
+        self,
+        thread_attr: str,
+        worker_attr: str,
+        stop_worker: bool = False,
+    ) -> None:
         thread = getattr(self, thread_attr, None)
         worker = getattr(self, worker_attr, None)
 
@@ -1099,161 +1029,7 @@ class InterviewPanel(QWidget):
         setattr(self, worker_attr, None)
         setattr(self, thread_attr, None)
 
-    def _ensure_interviewer_tts_started(self):
-        if self._interviewer_tts_started:
-            return
-
-        api_key = os.getenv("DASHSCOPE_API_KEY", "")
-        if not api_key:
-            print("[TTS] DASHSCOPE_API_KEY 缺失，跳过面试官语音")
-            return
-
-        self._interviewer_tts_queue = queue.Queue()
-        self._interviewer_tts_player = StreamingAudioPlayer()
-        self._tts_last_token = ""
-        self._tts_recent_sentence_cache = []
-        self._tts_last_playback_sentence = ""
-
-        def _token_iter():
-            assert self._interviewer_tts_queue is not None
-            while True:
-                token = self._interviewer_tts_queue.get()
-                if token is None:
-                    break
-                yield token
-
-        def _runner():
-            try:
-                stream_interview_tts_from_tokens(
-                    token_stream=_token_iter(),
-                    on_audio_chunk=self._on_interviewer_audio_chunk,
-                    api_key=api_key,
-                    model="qwen3-tts-instruct-flash",
-                    voice="Elias",
-                    sentence_punctuations=frozenset({".", "。", "!", "！", "?", "？", ";", "；", ":", "：", "\n"}),
-                    ordered_output=False,
-                    max_workers=1,
-                    max_buffer_length=64,
-                )
-            except Exception as exc:
-                print(f"[TTS] interviewer stream error: {exc}")
-            finally:
-                if self._interviewer_tts_player is not None:
-                    self._interviewer_tts_player.close()
-
-        self._interviewer_tts_thread = threading.Thread(target=_runner, daemon=True)
-        self._interviewer_tts_thread.start()
-        self._interviewer_tts_started = True
-
-    def _feed_interviewer_tts_token(self, token: str):
-        if self._interviewer_tts_queue is None:
-            return
-        token_text = str(token or "")
-        if not token_text:
-            return
-
-        token_text = token_text.strip("\r")
-        if not token_text:
-            return
-
-        # 去重1：连续重复 token 直接忽略（常见于上游重发）。
-        if token_text == self._tts_last_token:
-            return
-
-        stripped = token_text.strip()
-        if stripped and stripped[-1] in {"。", "！", "？", ".", "!", "?", "\n"} and len(stripped) > 3:
-            # 去重2：完整句子在短窗口内重复出现，忽略重复调用。
-            if stripped in self._tts_recent_sentence_cache:
-                self._tts_last_token = token_text
-                return
-            self._tts_recent_sentence_cache.append(stripped)
-            if len(self._tts_recent_sentence_cache) > 12:
-                self._tts_recent_sentence_cache.pop(0)
-
-        self._tts_last_token = token_text
-        self._interviewer_tts_queue.put(token_text)
-
-    def _on_interviewer_audio_chunk(self, audio_chunk: bytes, sentence: str):
-        if not audio_chunk:
-            return
-
-        # 同一句子的连续 chunk 只打印一次句子日志，避免日志风暴。
-        if sentence != self._tts_last_playback_sentence:
-            print(f"[TTS] sentence: {sentence}")
-            self._tts_last_playback_sentence = sentence
-        if self._interviewer_tts_player is not None:
-            self._interviewer_tts_player.submit(audio_chunk)
-
-    def _stop_interviewer_tts(self, force: bool = False):
-        if self._interviewer_tts_queue is not None:
-            try:
-                self._interviewer_tts_queue.put(None)
-            except Exception:
-                pass
-
-        if self._interviewer_tts_thread and self._interviewer_tts_thread.is_alive():
-            timeout = 2.0 if force else 8.0
-            self._interviewer_tts_thread.join(timeout=timeout)
-
-            # 非强制停止时，若仍在合成则不立即关闭播放器，避免语音被截断。
-            if self._interviewer_tts_thread.is_alive() and not force:
-                print("[TTS] still synthesizing, skip forced shutdown to avoid truncation")
-                return
-
-        if self._interviewer_tts_player is not None:
-            self._interviewer_tts_player.close()
-            self._interviewer_tts_player.join(timeout=2.0)
-        self._interviewer_tts_queue = None
-        self._interviewer_tts_thread = None
-        self._interviewer_tts_player = None
-        self._interviewer_tts_started = False
-        self._tts_last_token = ""
-        self._tts_recent_sentence_cache = []
-        self._tts_last_playback_sentence = ""
-
-    def _add_system_msg(self, text: str):
-        bubble = ChatBubble("system", text)
-        self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
-        self._notify_new_content()
-
-    def _clear_chat(self):
-        self._clear_playing_bubble_highlight()
-        self._voice_bubble_audio_map.clear()
-        self._voice_bubble_widget_map.clear()
-        self._voice_bubble_default_style.clear()
-        while self._chat_layout.count() > 1:
-            item = self._chat_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-    def _set_loading(self, loading: bool, msg: str = ""):
-        if loading:
-            self.status_lbl.setText(f"⏳  {msg}")
-            self.status_lbl.setStyleSheet(
-                f"color: {T.NEON}; font-size: 12px; font-weight: 600;"
-            )
-        else:
-            self.status_lbl.setStyleSheet(f"color: {T.TEXT_DIM}; font-size: 12px;")
-
-    def _set_input_enabled(self, enabled: bool):
-        self.answer_input.setEnabled(enabled)
-        self.voice_btn.setEnabled(enabled)
-        self.send_btn.setEnabled(enabled)
-        if enabled:
-            self.answer_input.setFocus()
-
-    def _show_toast(self, msg: str):
-        orig = self.status_lbl.text()
-        self.status_lbl.setText(f"⚠️  {msg}")
-        self.status_lbl.setStyleSheet(
-            f"color: {T.ACCENT}; font-weight: bold; font-size: 12px;"
-        )
-        QTimer.singleShot(2000, lambda: (
-            self.status_lbl.setText(orig),
-            self.status_lbl.setStyleSheet(f"color: {T.TEXT_DIM}; font-size: 12px;"),
-        ))
-
-    def eventFilter(self, obj, event):
+    def eventFilter(self, obj, event) -> bool:
         if obj in self._voice_bubble_audio_map and event.type() == QEvent.MouseButtonRelease:
             if hasattr(event, "button") and event.button() == Qt.LeftButton:
                 audio_path = self._voice_bubble_audio_map.get(obj, "")
@@ -1261,7 +1037,7 @@ class InterviewPanel(QWidget):
                 if audio_path and os.path.exists(audio_path):
                     self._play_audio_file(audio_path, bubble=bubble)
                 else:
-                    QMessageBox.warning(self, "播放失败", "语音文件不存在，可能已被删除。")
+                    QMessageBox.warning(self, "播放失败", "语音文件不存在。")
                 return True
 
         if obj is self.answer_input and event.type() == QEvent.KeyPress:
@@ -1270,11 +1046,13 @@ class InterviewPanel(QWidget):
                 if self.send_btn.isEnabled():
                     self._send_answer()
                 return True
+
         return super().eventFilter(obj, event)
 
-    def closeEvent(self, event):
-        # 先停 TTS 播放，再关闭所有 QThread，避免 "QThread: Destroyed while thread is still running"。
-        self._stop_interviewer_tts(force=True)
+    def closeEvent(self, event) -> None:
+        # 强制停止当前 AI 气泡的 TTS
+        if self._current_ai_bubble is not None:
+            self._current_ai_bubble.stop_tts(force=True)
 
         self._shutdown_thread("_voice_thread", "_voice_worker", stop_worker=True)
         self._shutdown_thread("_asr_thread", "_asr_worker", stop_worker=False)

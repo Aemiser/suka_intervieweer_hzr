@@ -14,11 +14,11 @@ from service.schema import SchemaInitializer
 from service.interview_engine_sdk.interview_engine import InterviewEngine
 from service.helper_engine import HelperEngine
 
-from UI.interview_panel import InterviewPanel
-from UI.agent_panel import AgentPanel
-from UI.history_panel import HistoryPanel
-from UI.quiz_panel import QuizPanel
-from UI.components import Theme as T
+from UI.panel.interview_panel import InterviewPanel
+from UI.panel.agent_panel import AgentPanel
+from UI.panel.history_panel import HistoryPanel
+from UI.panel.quiz_panel import QuizPanel
+from UI.components.info import Theme as T
 
 
 def main():

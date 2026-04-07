@@ -1,8 +1,9 @@
-# UI/agent_panel.py
+# UI/panel/agent_panel.py
 """
-AI 知识助手面板 — 重构版
-使用统一组件库 UI/components.py，支持原生流式输出
+AI 知识助手面板。
+TTS 完全由 ChatBubble 内部承接，panel 层只负责业务流程。
 """
+
 import threading
 
 from PySide6.QtWidgets import (
@@ -10,29 +11,28 @@ from PySide6.QtWidgets import (
     QLabel, QScrollArea, QWidget, QFrame,
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor
 
 from UI.components import (
-    Theme as T, ChatBubble, TypingIndicator, StreamSignals,
+    T, ChatBubble, TypingIndicator, StreamSignals,
     ButtonFactory, GLOBAL_QSS, input_qss,
 )
 
 # ── 快捷提示 ──────────────────────────────────────────────────────────────────
 HINTS = [
-    ("🎲", "随机抽题",   "从题库随机抽5道题",        T.NEON),
-    ("🔍", "搜索题目",   "搜索 Redis 相关题目",       T.PURPLE),
-    ("📊", "题库统计",   "查看题库分类统计",          T.YELLOW),
+    ("🎲", "随机抽题",   "从题库随机抽5道题",          T.NEON),
+    ("🔍", "搜索题目",   "搜索 Redis 相关题目",         T.PURPLE),
+    ("📊", "题库统计",   "查看题库分类统计",            T.YELLOW),
     ("🌐", "联网搜索",   "搜索 Spring Boot 3.0 新特性", T.GREEN),
-    ("📚", "知识检索",   "什么是 MVCC？",            T.NEON),
-    ("🏆", "历史记录",   "查看学生ID=1的面试记录",    T.ACCENT),
+    ("📚", "知识检索",   "什么是 MVCC？",              T.NEON),
+    ("🏆", "历史记录",   "查看学生ID=1的面试记录",      T.ACCENT),
 ]
 
 
-# ── 主面板 ────────────────────────────────────────────────────────────────────
 class AgentPanel(QWidget):
     def __init__(self, agent, parent=None):
         super().__init__(parent)
         self.agent = agent
+
         self._stream_signals = StreamSignals()
         self._current_ai_bubble: ChatBubble | None = None
         self._typing_indicator: TypingIndicator | None = None
@@ -46,7 +46,7 @@ class AgentPanel(QWidget):
 
     # ── UI 构建 ───────────────────────────────────────────────────────────────
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         self.setStyleSheet(GLOBAL_QSS + input_qss())
 
         root = QVBoxLayout(self)
@@ -70,16 +70,13 @@ class AgentPanel(QWidget):
         lay = QHBoxLayout(header)
         lay.setContentsMargins(22, 0, 22, 0)
 
-        # 左：标题
         title = QLabel("🤖  AI 知识助手")
-        title.setStyleSheet(f"""
-            font-size: 16px; font-weight: 800; color: {T.TEXT};
-            font-family: {T.FONT};
-        """)
+        title.setStyleSheet(
+            f"font-size: 16px; font-weight: 800; color: {T.TEXT}; font-family: {T.FONT};"
+        )
 
-        # 中：工具状态
         self._tool_status = QLabel()
-        self._update_tool_status()
+        self._refresh_tool_status()
         self._tool_status.setStyleSheet(f"""
             font-size: 11px; color: {T.GREEN}; font-weight: 600;
             background: {T.GREEN}11;
@@ -88,7 +85,6 @@ class AgentPanel(QWidget):
             padding: 2px 10px;
         """)
 
-        # 右：清空按钮
         clear_btn = ButtonFactory.ghost("清空对话")
         clear_btn.clicked.connect(self._clear)
 
@@ -125,9 +121,7 @@ class AgentPanel(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
-        self._scroll.setStyleSheet(f"""
-            QScrollArea {{ background: {T.BG}; border: none; }}
-        """)
+        self._scroll.setStyleSheet(f"QScrollArea {{ background: {T.BG}; border: none; }}")
 
         self._chat_widget = QWidget()
         self._chat_widget.setStyleSheet(f"background: {T.BG};")
@@ -136,8 +130,8 @@ class AgentPanel(QWidget):
         self._chat_layout.setSpacing(10)
         self._chat_layout.addStretch()
 
-        # 欢迎消息
-        welcome = ChatBubble("assistant",
+        welcome = ChatBubble(
+            "assistant",
             "你好！我是 **AI 知识助手** 🤖\n\n"
             "我可以帮你：\n"
             "- 🎲 随机抽题练习\n"
@@ -146,7 +140,7 @@ class AgentPanel(QWidget):
             "- 🌐 联网搜索最新技术资料\n"
             "- 📚 知识库技术概念检索\n"
             "- 🏆 查看历史面试记录\n\n"
-            "点击上方快捷按钮，或直接输入问题开始！"
+            "点击上方快捷按钮，或直接输入问题开始！",
         )
         self._chat_layout.insertWidget(0, welcome)
 
@@ -181,15 +175,19 @@ class AgentPanel(QWidget):
 
     # ── 消息逻辑 ──────────────────────────────────────────────────────────────
 
-    def _update_tool_status(self):
-        count = len(self.agent.get_registered_tools()) if hasattr(self.agent, 'get_registered_tools') else 8
+    def _refresh_tool_status(self) -> None:
+        count = (
+            len(self.agent.get_registered_tools())
+            if hasattr(self.agent, "get_registered_tools")
+            else 8
+        )
         self._tool_status.setText(f"● {count} 个工具就绪")
 
-    def _quick_send(self, text: str):
+    def _quick_send(self, text: str) -> None:
         self._input.setText(text)
         self._send()
 
-    def _send(self):
+    def _send(self) -> None:
         if self._is_streaming:
             return
         text = self._input.text().strip()
@@ -199,22 +197,24 @@ class AgentPanel(QWidget):
         self._add_user_bubble(text)
         self._start_stream(text)
 
-    def _add_user_bubble(self, text: str):
+    def _add_user_bubble(self, text: str) -> None:
         bubble = ChatBubble("user", text)
         self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
         self._scroll_bottom()
 
-    def _start_stream(self, text: str):
+    def _start_stream(self, text: str) -> None:
         self._is_streaming = True
         self._send_btn.setEnabled(False)
         self._input.setEnabled(False)
 
         # 打字指示器
         self._typing_indicator = TypingIndicator()
-        self._chat_layout.insertWidget(self._chat_layout.count() - 1, self._typing_indicator)
+        self._chat_layout.insertWidget(
+            self._chat_layout.count() - 1, self._typing_indicator
+        )
         self._scroll_bottom()
 
-        def run():
+        def _run() -> None:
             try:
                 for chunk in self.agent.stream(text):
                     self._stream_signals.chunk_received.emit(chunk)
@@ -222,37 +222,47 @@ class AgentPanel(QWidget):
             except Exception as e:
                 self._stream_signals.stream_error.emit(str(e))
 
-        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=_run, daemon=True).start()
 
-    def _on_chunk(self, chunk: str):
+    def _on_chunk(self, chunk: str) -> None:
         # 移除打字指示器
-        if self._typing_indicator:
+        if self._typing_indicator is not None:
             self._chat_layout.removeWidget(self._typing_indicator)
             self._typing_indicator.stop()
             self._typing_indicator.deleteLater()
             self._typing_indicator = None
 
         # 创建 AI 气泡（仅首个 chunk）
+        # AgentPanel 中助手回复不启用 TTS；
+        # 如需 TTS 只需改为 enable_tts=True
         if self._current_ai_bubble is None:
-            self._current_ai_bubble = ChatBubble("assistant")
-            self._chat_layout.insertWidget(self._chat_layout.count() - 1, self._current_ai_bubble)
+            self._current_ai_bubble = ChatBubble("assistant", enable_tts=False)
+            self._current_ai_bubble.start_tts()
+            self._chat_layout.insertWidget(
+                self._chat_layout.count() - 1, self._current_ai_bubble
+            )
 
         self._current_ai_bubble.append_chunk(chunk)
         self._scroll_bottom()
 
-    def _on_stream_done(self):
+    def _on_stream_done(self) -> None:
+        if self._current_ai_bubble is not None:
+            self._current_ai_bubble.stop_tts()
         self._current_ai_bubble = None
         self._is_streaming = False
         self._send_btn.setEnabled(True)
         self._input.setEnabled(True)
         self._input.setFocus()
 
-    def _on_stream_error(self, msg: str):
-        if self._typing_indicator:
+    def _on_stream_error(self, msg: str) -> None:
+        if self._typing_indicator is not None:
             self._chat_layout.removeWidget(self._typing_indicator)
             self._typing_indicator.stop()
             self._typing_indicator.deleteLater()
             self._typing_indicator = None
+
+        if self._current_ai_bubble is not None:
+            self._current_ai_bubble.stop_tts(force=True)
 
         err_bubble = ChatBubble("assistant", f"❌ 出错了：{msg}")
         self._chat_layout.insertWidget(self._chat_layout.count() - 1, err_bubble)
@@ -261,16 +271,14 @@ class AgentPanel(QWidget):
         self._send_btn.setEnabled(True)
         self._input.setEnabled(True)
 
-    # ── 工具函数 ──────────────────────────────────────────────────────────────
-
-    def _clear(self):
+    def _clear(self) -> None:
         while self._chat_layout.count() > 1:
             item = self._chat_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
         self.agent.clear_conversation()
 
-    def _scroll_bottom(self):
+    def _scroll_bottom(self) -> None:
         QTimer.singleShot(60, lambda: self._scroll.verticalScrollBar().setValue(
             self._scroll.verticalScrollBar().maximum()
         ))

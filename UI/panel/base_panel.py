@@ -1,9 +1,11 @@
-# UI/base_panel.py
+# UI/panel/base_panel.py
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QLabel
 from PySide6.QtCore import Qt
 
 
 class PanelFrame(QFrame):
+    """通用面板基类，提供带标题的圆角卡片容器。"""
+
     def __init__(self, title: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("PanelFrame")
@@ -21,6 +23,8 @@ class PanelFrame(QFrame):
 
         if title:
             lbl = QLabel(title)
-            lbl.setStyleSheet("font-weight: bold; font-size: 14px; color: #111827;")
+            lbl.setStyleSheet(
+                "font-weight: bold; font-size: 14px; color: #111827;"
+            )
             lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.layout.addWidget(lbl)
