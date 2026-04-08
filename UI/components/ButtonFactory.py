@@ -30,15 +30,19 @@ class ButtonFactory:
             QPushButton:disabled {{
                 background: {T.BORDER}; color: {T.TEXT_MUTE};
                 border-color: {T.BORDER};
+                cursor: NotAllowedCursor;
             }}
         """)
         return btn
 
-    @staticmethod
-    @staticmethod
+    @staticmethod  # 🔑 修复：删除重复的 @staticmethod
     def solid(text: str, color: str = T.NEON, height: int = 38, width: int | None = None) -> QPushButton:
         """实心填充按钮（主操作）。"""
         btn = QPushButton(text)
+        # 🔑 显式声明启用状态 + 类型保护
+        btn.setEnabled(True)
+        btn.setAttribute(Qt.WA_LayoutUsesWidgetRect)  # 确保 PySide6 布局兼容
+
         btn.setFixedHeight(height)
         if width:
             btn.setFixedWidth(width)
@@ -53,7 +57,10 @@ class ButtonFactory:
                 QPushButton:hover   {{ background: {color}CC; }}
                 QPushButton:pressed {{ background: {color}AA; }}
                 QPushButton:disabled {{
-                    background: {T.BORDER}; color: {T.TEXT_MUTE};
+                    background: {T.BORDER}; 
+                    color: {T.TEXT_MUTE};
+                    border: none;
+                    cursor: NotAllowedCursor;
                 }}
             """)
         return btn
@@ -72,6 +79,11 @@ class ButtonFactory:
             }}
             QPushButton:hover {{
                 color: {T.ACCENT}; border-color: {T.ACCENT};
+            }}
+            QPushButton:disabled {{
+                color: {T.TEXT_MUTE}; 
+                border-color: {T.BORDER};
+                cursor: NotAllowedCursor;
             }}
         """)
         return btn
@@ -93,6 +105,12 @@ class ButtonFactory:
             QPushButton:hover {{
                 color: {color}; border-color: {color}55;
                 background: {color}11;
+            }}
+            QPushButton:disabled {{
+                color: {T.TEXT_MUTE};
+                border-color: {T.BORDER};
+                background: {T.SURFACE};
+                cursor: NotAllowedCursor;
             }}
         """)
         return btn

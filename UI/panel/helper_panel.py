@@ -22,6 +22,7 @@ from UI.components import (
     ButtonFactory, GLOBAL_QSS, input_qss,
 )
 from UI.components.chat_input_bar import ChatInputBar
+from UI.components.footer import Footer
 
 # ── 快捷提示 ──────────────────────────────────────────────────────────────────
 HINTS = [
@@ -34,51 +35,7 @@ HINTS = [
 ]
 
 
-class ResizableFooter(QFrame):
-    """支持鼠标拖拽调整高度的底部区域（拖拽条严格跟随鼠标）"""
 
-    def __init__(self, min_height: int = 80, max_height: int = 350, parent=None):
-        super().__init__(parent)
-        self.min_height = min_height
-        self.max_height = max_height
-        self.setFixedHeight(min_height)
-        self._dragging = False
-        self._start_y = 0
-        self._start_height = 0
-        self.setMouseTracking(True)
-        self.setStyleSheet(f"""
-            QFrame {{ background: {T.SURFACE}; border-top: 1px solid {T.BORDER}; }}
-        """)
-
-    def mousePressEvent(self, event) -> None:
-        # 顶部 10px 为拖拽热区
-        if event.button() == Qt.LeftButton and event.y() <= 10:
-            self._dragging = True
-            self._start_y = event.globalPosition().y()
-            self._start_height = self.height()
-            self.setCursor(Qt.SizeVerCursor)
-            event.accept()
-        else:
-            super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event) -> None:
-        if self._dragging:
-            delta = event.globalPosition().y() - self._start_y
-            # 🔑 核心：鼠标下移(delta>0)时高度减小，使顶部边缘严格跟随光标
-            new_h = self._start_height - delta
-            new_h = max(self.min_height, min(new_h, self.max_height))
-
-            if new_h != self.height():
-                self.setFixedHeight(int(new_h))
-            event.accept()
-        else:
-            self.setCursor(Qt.SizeVerCursor if event.y() <= 10 else Qt.ArrowCursor)
-            super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event) -> None:
-        self._dragging = False
-        self.setCursor(Qt.ArrowCursor)
-        super().mouseReleaseEvent(event)
 
 class HelperPanel(QWidget):
     def __init__(self, agent, parent=None):
@@ -96,12 +53,17 @@ class HelperPanel(QWidget):
         self._stream_signals.stream_error.connect(self._on_stream_error)
 
         self._build_ui()
-        self._bind_input_signals()
+        self._bind_footer_signals()
 
     # ── 信号绑定 ──────────────────────────────────────────────────────────────
-    def _bind_input_signals(self) -> None:
-        self.input_bar.send_requested.connect(self._send)
-
+    def _bind_footer_signals(self) -> None:
+        self.footer.send_requested.connect(self._send)
+        self.footer.asr_finished.connect(self._on_asr_transcript)
+        self.footer.status_changed.connect(lambda s: self._tool_status.setText(s))
+    def _on_asr_transcript(self, text: str) -> None:
+        if text:
+            self.footer.set_input_text(text)
+            self._send()  # 自动提交，若需手动确认可注释此行
     # ── UI 构建 ───────────────────────────────────────────────────────────────
     def _build_ui(self) -> None:
         self.setStyleSheet(GLOBAL_QSS + input_qss())
@@ -112,7 +74,8 @@ class HelperPanel(QWidget):
         root.addWidget(self._build_header())
         root.addWidget(self._build_hints())
         root.addWidget(self._build_chat_area(), stretch=1)
-        root.addWidget(self._build_footer())
+        self.footer = Footer(min_height=160, max_height=400)  # 👈 替换原 QFrame
+        root.addWidget(self.footer)
 
     def _build_header(self) -> QFrame:
         header = QFrame()
@@ -187,20 +150,6 @@ class HelperPanel(QWidget):
         self._scroll.setWidget(self._chat_widget)
         return self._scroll
 
-    def _build_footer(self) -> ResizableFooter:
-        # 👇 替换为可拖拽高度的 Footer
-        footer = ResizableFooter(min_height=80, max_height=350)
-
-        lay = QHBoxLayout(footer)
-        lay.setContentsMargins(20, 14, 20, 14)
-        lay.setSpacing(10)
-
-        self.input_bar = ChatInputBar(self)
-        self.input_bar.set_placeholder("输入问题，按 Ctrl+Enter 发送...")
-
-        lay.addWidget(self.input_bar)
-        return footer
-
     # ── 消息逻辑 ──────────────────────────────────────────────────────────────
     def _refresh_tool_status(self) -> None:
         count = (
@@ -209,17 +158,19 @@ class HelperPanel(QWidget):
         )
         self._tool_status.setText(f"● {count} 个工具就绪")
 
+    # ── 消息逻辑 ──────────────────────────────────────────────────────────────
     def _quick_send(self, text: str) -> None:
-        self.input_bar.set_text(text)
+        self.footer.set_input_text(text)
         self._send()
 
     def _send(self) -> None:
         if self._is_streaming:
-            return
-        text = self.input_bar.text_edit.toPlainText().strip()
+           return
+        # 从 footer 获取文本并清空
+        text = self.footer.input_bar.text_edit.toPlainText().strip()
         if not text:
             return
-        self.input_bar.clear()
+        self.footer.clear_input()
         self._add_user_bubble(text)
         self._start_stream(text)
 
@@ -267,7 +218,7 @@ class HelperPanel(QWidget):
         self._current_ai_bubble = None
         self._is_streaming = False
         self._set_input_enabled(True)
-        self.input_bar.text_edit.setFocus()
+        self.footer.input_bar.text_edit.setFocus()
 
     def _on_stream_error(self, msg: str) -> None:
         if self._typing_indicator is not None:
@@ -298,4 +249,4 @@ class HelperPanel(QWidget):
         ))
 
     def _set_input_enabled(self, enabled: bool) -> None:
-        self.input_bar.set_enabled(enabled)
+        self.footer.set_enabled(enabled)

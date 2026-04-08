@@ -5,7 +5,7 @@ chat_input_bar.py
 """
 
 from PySide6.QtCore import Qt, Signal, QTimer
-from PySide6.QtGui import QKeyEvent, QWheelEvent
+from PySide6.QtGui import QKeyEvent, QWheelEvent,QTextCursor
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QTextEdit, QSizePolicy
 
 from UI.components import ButtonFactory, T
@@ -100,7 +100,7 @@ class ChatInputBar(QWidget):
 
     def set_text(self, text: str) -> None:
         self.text_edit.setPlainText(text)
-        self.text_edit.moveCursor(self.text_edit.textCursor().End)
+        self.text_edit.moveCursor(QTextCursor.End)
 
     def clear(self) -> None:
         self.text_edit.clear()
