@@ -50,8 +50,14 @@ from service.voice_sdk.models import VoiceResult
 
 class InterviewWorker(QObject):
     request_start = Signal(str, int)
+    request_start_with_resume = Signal(
+        str, int, dict
+    )  # name, job_id, resume_evaluation
     request_answer = Signal(str)
     request_finish = Signal()
+    request_resume_analysis = Signal(
+        str, str, str, str
+    )  # resume_path, job_name, desc, skills
 
     session_started = Signal(int)
     stream_chunk = Signal(str)
@@ -61,6 +67,8 @@ class InterviewWorker(QObject):
     score_received = Signal(float)
     stream_done = Signal(str)
     error_occurred = Signal(str)
+    resume_analysis_chunk = Signal(str)  # 简历分析流式输出
+    resume_analysis_finished = Signal(dict)  # 简历分析完成
 
     PHASE_FIRST_Q = "first_q"
     PHASE_ANSWER = "answer"
@@ -94,12 +102,41 @@ class InterviewWorker(QObject):
         except Exception as e:
             self.error_occurred.emit(str(e))
 
+    def on_start_with_resume_requested(
+        self, name: str, job_id: int, resume_evaluation: dict
+    ):
+        """带简历评价的会话启动"""
+        print("带简历评价的会话启动")
+        try:
+            row = self.db.fetchone("SELECT id FROM student WHERE name=?", (name,))
+            student_id = (
+                row[0]
+                if row
+                else self.db.execute(
+                    "INSERT INTO student (name, created_at) VALUES (?,?)",
+                    (name, datetime.now().isoformat()),
+                ).lastrowid
+            )
+
+            self.session_id = self.engine.start_session_with_resume(
+                student_id, job_id, resume_evaluation
+            )
+            self.session_started.emit(self.session_id)
+
+            for token in self.engine.get_first_question_stream(self.session_id):
+                self.stream_chunk.emit(token)
+            self.stream_done.emit(self.PHASE_FIRST_Q)
+        except Exception as e:
+            self.error_occurred.emit(str(e))
+
     def on_answer_requested(self, answer: str):
+        print(f"[on_answer_requested] 收到回答: {answer[:50]}...")
         if self.session_id is None:
             self.error_occurred.emit("Session not initialized")
             return
         try:
             self._is_finished = False
+            print(f"[on_answer_requested] 调用 engine.submit_answer_stream")
             for token in self.engine.submit_answer_stream(self.session_id, answer):
                 if token.startswith("__EVAL__:"):
                     self.eval_received.emit(
@@ -140,6 +177,27 @@ class InterviewWorker(QObject):
             self.stream_done.emit(self.PHASE_REPORT)
         except Exception as e:
             self.error_occurred.emit(str(e))
+
+    def on_resume_analysis_requested(
+        self,
+        resume_path: str,
+        job_name: str,
+        job_description: str,
+        required_skills: str,
+    ):
+
+        print("处理简历分析请求")
+        """处理简历分析请求"""
+        try:
+            for token in self.engine.analyze_resume_stream(
+                resume_path,
+                job_name,
+                job_description,
+                required_skills,
+            ):
+                self.resume_analysis_chunk.emit(token)
+        except Exception as e:
+            self.error_occurred.emit(f"简历分析失败: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -183,6 +241,7 @@ class InterviewPanel(QWidget):
         self.engine = engine
         self._session_id: int | None = None
         self._resume_path: str | None = None  # 简历文件路径
+        self._resume_evaluation: dict | None = None  # 简历评价结果
 
         # 流式对话状态
         self._is_streaming = False
@@ -212,8 +271,10 @@ class InterviewPanel(QWidget):
     def _bind_worker_signals(self) -> None:
         w = self._worker
         w.request_start.connect(w.on_start_requested)
+        w.request_start_with_resume.connect(w.on_start_with_resume_requested)
         w.request_answer.connect(w.on_answer_requested)
         w.request_finish.connect(w.on_finish_requested)
+        w.request_resume_analysis.connect(w.on_resume_analysis_requested)
 
         w.session_started.connect(self._on_session_started)
         w.stream_chunk.connect(self._on_chunk)
@@ -223,6 +284,7 @@ class InterviewPanel(QWidget):
         w.score_received.connect(self._on_score_received)
         w.stream_done.connect(self._on_stream_done)
         w.error_occurred.connect(self._on_error)
+        w.resume_analysis_chunk.connect(self._on_resume_analysis_chunk)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Footer 信号绑定（录音/输入 → 业务，不直接碰 asr_btn）
@@ -313,7 +375,7 @@ class InterviewPanel(QWidget):
         lay.addSpacing(12)
 
         # 简历投递按钮
-        self.resume_btn = ButtonFactory.primary("📎 投递简历", T.PURPLE, height=34)
+        self.resume_btn = ButtonFactory.primary("投递简历", T.PURPLE, height=34)
         self.resume_btn.setFixedWidth(100)
         self.resume_btn.setToolTip("上传简历，AI 将分析简历内容")
         self.resume_btn.clicked.connect(self._on_resume_submit)
@@ -383,9 +445,8 @@ class InterviewPanel(QWidget):
         layout.setSpacing(15)
 
         # 标题
-        title = QLabel("📎 投递简历")
+        title = QLabel("投递简历")
         title.setStyleSheet(f"""
-            color: {T.TEXT};
             font-size: 16px;
             font-weight: 700;
             font-family: {T.FONT};
@@ -430,20 +491,108 @@ class InterviewPanel(QWidget):
             self._trigger_resume_analysis()
 
     def _trigger_resume_analysis(self) -> None:
-        """触发简历分析流程（预留接口）
+        """触发简历分析流程
 
-        架构思路：
-        - 接入模型 → 简历传给 AI → AI 返回简历评价 → 再开启会话 session
-        - 这样后续提问可以更有针对性，也能降低幻觉率
+        工作编排：
+        1. 显示分析中状态
+        2. 启动 Worker 进行简历解析和 AI 评价
+        3. 流式显示分析过程
+        4. 存储评价结果供面试使用
         """
         if not self._resume_path:
             return
 
-        # TODO: 实现简历分析逻辑
-        # 1. 调用简历解析服务提取关键信息
-        # 2. 将简历内容传给 AI 进行评价
-        # 3. 存储分析结果供面试时使用
+        # 获取岗位信息
+        job_name = self.job_combo.currentText() if self.job_combo.count() > 0 else ""
+
+        self._set_loading(True, "正在分析简历...")
+        self._add_system_msg("📊 开始分析简历内容...")
+
+        # 启动简历分析 Worker
+        self._worker.request_resume_analysis.emit(
+            self._resume_path,
+            job_name,
+            "",  # job_description（可选）
+            "",  # required_skills（可选）
+        )
+
+    def _on_resume_analysis_chunk(self, chunk: str) -> None:
+        """处理简历分析流式输出"""
+        chunk_stripped = chunk.strip()
+
+        if chunk_stripped.startswith("__RESUME_EVAL__:"):
+            try:
+                eval_json = chunk_stripped[len("__RESUME_EVAL__:") :].strip()
+                self._resume_evaluation = json.loads(eval_json)
+                self._on_resume_analysis_finished(self._resume_evaluation)
+                return
+            except Exception as e:
+                self._update_status("简历分析完成，可以开始面试")
+        elif chunk_stripped.startswith("__ERROR__:"):
+            error_msg = chunk_stripped[len("__ERROR__:") :].strip()
+            self._update_status("简历分析完成，可以开始面试")
+            self._set_loading(False)
+            return
+
+        # 显示其他内容（过滤工具调用信息）
+        if (
+            chunk_stripped
+            and "正在调用" not in chunk_stripped
+            and "⚙️" not in chunk_stripped
+        ):
+            self._add_system_msg(chunk_stripped)
+
+    def _on_resume_analysis_finished(self, evaluation: dict) -> None:
+        """简历分析完成处理"""
+        self._set_loading(False)
+        self._resume_evaluation = evaluation
+
+        # 综合评分
+        overall_score = evaluation.get("overall_score", "N/A")
+        self._add_system_msg(f"📊 简历分析完成！综合评分：{overall_score}/10")
+
+        # 各维度评分
+        dims = evaluation.get("dimensions", {})
+        dim_lines = []
+        for key, label in [
+            ("skill_match", "技能匹配"),
+            ("project_depth", "项目经验"),
+            ("tech_breadth", "技术广度"),
+            ("growth_potential", "成长潜力"),
+            ("resume_quality", "简历质量"),
+        ]:
+            if key in dims:
+                score = dims[key].get("score", "N/A")
+                dim_lines.append(f"{label} {score}/10")
+        if dim_lines:
+            self._add_system_msg(" | ".join(dim_lines))
+
+        # 优势
+        strengths = evaluation.get("strengths", [])
+        if strengths:
+            self._add_system_msg("✅ 优势：" + "；".join(strengths[:2]))
+
+        # 关注点
+        concerns = evaluation.get("concerns", [])
+        if concerns:
+            self._add_system_msg("⚠️ 关注点：" + "；".join(concerns[:2]))
+
+        # 建议问题
+        suggested = evaluation.get("suggested_questions", [])
+        if suggested:
+            self._add_system_msg("💭 建议追问：" + suggested[0][:50] + "...")
+
+        # 面试策略
+        strategy = evaluation.get("interview_strategy", "")
+        if strategy:
+            self._add_system_msg("🎯 面试策略：" + strategy[:80] + "...")
+
+        # 明确提示用户可以开始面试
+        self._add_system_msg("✨ 分析完成，请点击「开始面试」进入 AI 面试环节！")
         self._update_status("📊 简历分析完成，可以开始面试了")
+
+        if strategy:
+            self.start_btn.setToolTip(f"面试策略：{strategy[:50]}...")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Footer 事件处理（输入/录音 → Worker）
@@ -451,6 +600,7 @@ class InterviewPanel(QWidget):
 
     def _on_text_send(self, text: str) -> None:
         """文字输入框发送"""
+        print(f"[_on_text_send] 收到文本: {text}")
         self._submit_answer(text)
 
     def _on_asr_transcript_ready(self, transcript: str) -> None:
@@ -466,6 +616,7 @@ class InterviewPanel(QWidget):
         if not answer or self._is_streaming:
             return
         self.footer.clear_input()
+        self._add_user_msg(answer)
         self._pending_is_finished = False
         self._stream_phase = InterviewWorker.PHASE_ANSWER
         self._is_streaming = True
@@ -610,7 +761,15 @@ class InterviewPanel(QWidget):
         self._user_scrolled_up = False
         self._has_new_content = False
         self._toast.hide()
-        self._worker.request_start.emit(name, job_id)
+
+        # 如果有简历评价，使用带评价的会话启动
+        if self._resume_evaluation:
+            self._worker.request_start_with_resume.emit(
+                name, job_id, self._resume_evaluation
+            )
+            self._add_system_msg("📝 已加载简历评价，面试将更有针对性")
+        else:
+            self._worker.request_start.emit(name, job_id)
 
     def _finish_interview(self) -> None:
         self._set_loading(True, "正在生成最终报告...")
@@ -709,6 +868,11 @@ class InterviewPanel(QWidget):
 
     def _add_system_msg(self, text: str) -> None:
         bubble = ChatBubble("system", text)
+        self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
+        self._notify_new_content()
+
+    def _add_user_msg(self, text: str) -> None:
+        bubble = ChatBubble("user", text)
         self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
         self._notify_new_content()
 

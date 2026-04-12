@@ -212,15 +212,13 @@ class ResumeSubmitButton(QWidget):
 
         # 选择文件按钮
         self.btn_select = ButtonFactory.solid(
-            "📁 选择简历", T.TEXT_DIM, height=42, width=120
+            "选择简历", T.TEXT_DIM, height=42, width=120
         )
         self.btn_select.clicked.connect(self._on_select_file)
         btn_lay.addWidget(self.btn_select)
 
         # 投递按钮（主操作）
-        self.btn_submit = ButtonFactory.solid(
-            "🚀 投递简历", T.NEON, height=42, width=120
-        )
+        self.btn_submit = ButtonFactory.solid("投递简历", T.NEON, height=42, width=120)
         self.btn_submit.setEnabled(False)
         self.btn_submit.clicked.connect(self._on_submit_clicked)
         btn_lay.addWidget(self.btn_submit)
@@ -370,7 +368,7 @@ class ResumeSubmitButton(QWidget):
         QMessageBox.information(
             self,
             "投递成功",
-            f"✅ {result.get('message', '简历投递成功')}\n\n"
+            f"{result.get('message', '简历投递成功')}\n\n"
             f"文件名: {result.get('file_name', '-')}\n"
             f"候选人: {result.get('student_name', '-') or '未命名'}",
         )
@@ -486,7 +484,7 @@ class ResumeSubmitButton(QWidget):
         self.lbl_file_size.setText("")
         self.info_frame.setVisible(False)
         self.btn_submit.setEnabled(False)
-        self.btn_select.setText("📁 选择简历")
+        self.btn_select.setText("选择简历")
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         self.lbl_status.setText("")

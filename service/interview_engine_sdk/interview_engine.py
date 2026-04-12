@@ -16,6 +16,7 @@ InterviewEngine — 模拟面试引擎（重构版）
   __ERROR__:{msg}    — 内部错误
   __SCORE__:{float}  — 总分
 """
+
 from __future__ import annotations
 
 import json
@@ -60,16 +61,16 @@ class InterviewEngine:
     MAX_TURNS = 8  # 默认最大轮数，可由外部配置覆盖
 
     def __init__(
-            self,
-            db,
-            model: str = "qwen3-omni-flash",
-            temperature: float = 0.7,
-            max_tokens: int = 1024,
-            # 依赖注入（支持测试时 Mock）
-            rag_service: Optional[RAGService] = None,
-            decision_engine: Optional[MarkovDecisionEngine] = None,
-            db_conv: Optional[DBConversation] = None,
-            evaluator: Optional[AnswerEvaluator] = None,
+        self,
+        db,
+        model: str = "qwen3-omni-flash",
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        # 依赖注入（支持测试时 Mock）
+        rag_service: Optional[RAGService] = None,
+        decision_engine: Optional[MarkovDecisionEngine] = None,
+        db_conv: Optional[DBConversation] = None,
+        evaluator: Optional[AnswerEvaluator] = None,
     ):
         # ── 依赖注入 / 懒加载 ──────────────────────────────────────────────
         self.db_conv = db_conv or DBConversation(db)
@@ -106,7 +107,9 @@ class InterviewEngine:
         job = self.db_conv.get_session_job(session_id)
 
         # 🔧 修复：job["tech_stack"] 已经是 list，不需要 json.loads
-        tech_stack_list = job["tech_stack"] if isinstance(job["tech_stack"], list) else []
+        tech_stack_list = (
+            job["tech_stack"] if isinstance(job["tech_stack"], list) else []
+        )
         tech_stack = "、".join(tech_stack_list)
 
         system_content = _INTERVIEWER_SYSTEM.format(
@@ -232,21 +235,32 @@ class InterviewEngine:
                 rag_ctx="",  # 收尾不需要 RAG
                 difficulty=current_difficulty
             )
-            yield from self._generate_and_save(session_id, history, prompt, is_final=True)
+            yield from self._generate_and_save(
+                session_id, history, prompt, is_final=True
+            )
             return
 
         # ── Step 4: RAG 检索（按需） ──────────────────────────────────────
         rag_ctx = ""
-        if decision.intent in [IntentType.DEEPEN, IntentType.NEXT, IntentType.CORRECT, IntentType.CLARIFY]:
+        if decision.intent in [
+            IntentType.DEEPEN,
+            IntentType.NEXT,
+            IntentType.CORRECT,
+            IntentType.CLARIFY,
+        ]:
             rag_ctx = self.rag.retrieve_for_followup(question_text, answer, top_k=2)
 
         # ── Step 5: 构建 Prompt ──────────────────────────────────────────
         followup_prompt = self._build_prompt_by_intent(
             intent=decision.intent,
             answer=answer,
-            rag_ctx=self.rag.format_context(rag_ctx,
-                                            role="knowledge" if decision.intent == IntentType.CORRECT else "reference"),
-            difficulty=decision.next_difficulty
+            rag_ctx=self.rag.format_context(
+                rag_ctx,
+                role="knowledge"
+                if decision.intent == IntentType.CORRECT
+                else "reference",
+            ),
+            difficulty=decision.next_difficulty,
         )
 
         # ── Step 6: 更新状态（追问计数/难度） ─────────────────────────────
@@ -256,7 +270,9 @@ class InterviewEngine:
             self._followup_cache[session_id] = new_followup_count
             # 追问作为当前 turn 的补充，或单独存为 followup_turn（按业务需求）
             # 这里按原逻辑：追问算作新 turn
-            self.db_conv.save_turn(session_id, question_text="", student_answer="")  # 占位
+            self.db_conv.save_turn(
+                session_id, question_text="", student_answer=""
+            )  # 占位
         else:
             # 换新题：重置追问计数，更新难度
             self._followup_cache.pop(session_id, None)
@@ -266,7 +282,9 @@ class InterviewEngine:
             self.db_conv.save_turn(session_id, question_text="", student_answer="")
 
         # ── Step 7: Agent 流式生成 ───────────────────────────────────────
-        yield from self._generate_and_save(session_id, history, followup_prompt, is_final=False)
+        yield from self._generate_and_save(
+            session_id, history, followup_prompt, is_final=False
+        )
 
     def _generate_and_save(
             self,
@@ -388,6 +406,7 @@ class InterviewEngine:
         确认第一题（流式版已内置，此方法供兼容保留）
         """
         pass
+
     # ── 内部工具方法 ───────────────────────────────────────────────────────
 
     def _sync_history_to_agent(self, history: InterviewHistory):
@@ -453,7 +472,9 @@ class InterviewEngine:
 
     # ── 管理接口（供外部调用） ─────────────────────────────────────────────
 
-    def set_model(self, model: str, temperature: Optional[float] = None) -> "InterviewEngine":
+    def set_model(
+        self, model: str, temperature: Optional[float] = None
+    ) -> "InterviewEngine":
         self._agent.set_model(model, temperature)
         return self
 
@@ -469,7 +490,152 @@ class InterviewEngine:
         """暴露 Agent 供高级用法（谨慎使用）"""
         return self._agent
 
+    # 简历分析接口
+    def analyze_resume_stream(
+        self, resume_path, job_name="", job_description="", required_skills=""
+    ):
+
+
+        try:
+            # 解析简历
+            from service.tools.resume_parser import ResumeParser
+
+            resume_data = ResumeParser.parse_resume(resume_path)
+            print("解析简历文件成功")
+            print(resume_data)
+            cleaned = resume_data.get("cleaned_text", "")
+            if not cleaned or len(cleaned) < 50:
+                print("简历内容过少")
+                yield "__ERROR__:简历内容过少\n"
+                return
+
+            print(f"简历解析完成，内容长度: {len(cleaned)} 字符")
+
+            # 加载 prompt
+            from service.agent_core.load_prompt import load_prompt
+
+            prompt_template = load_prompt("prompt/interview/resume_evaluation.md")
+
+            # 替换占位符
+            prompt = prompt_template.replace("{resume_text}", cleaned[:8000])
+            prompt = prompt.replace("{job_name}", job_name or "通用技术岗位")
+            prompt = prompt.replace("{job_description}", job_description or "")
+            prompt = prompt.replace("{required_skills}", required_skills or "")
+
+            print("正在调用 AI 分析...")
+
+            parts = []
+            for chunk in self._agent.stream(prompt):
+                print(f"AI 响应: {chunk}")
+                parts.append(chunk)
+
+            full_resp = "".join(parts)
+            print(f"AI 返回长度: {len(full_resp)} 字符")
+            print(f"AI 响应: {full_resp} 字符")
+
+            if not full_resp.strip():
+                print("AI 返回为空")
+                yield "__ERROR__:AI 返回为空\n"
+                return
+
+            # 提取 JSON
+            eval_result = self._extract_resume_json(full_resp)
+            print(
+                f"简历评价结果: overall_score={eval_result.get('overall_score')}"
+            )
+            yield f"\n__RESUME_EVAL__:{json.dumps(eval_result, ensure_ascii=False)}\n"
+        except Exception as e:
+            import traceback
+
+            err = traceback.format_exc()
+            print(f"简历分析失败: {e}")
+            yield f"__ERROR__:{e}\n"
+
+    def _extract_resume_json(self, response):
+        import re, json
+
+        text = response.strip()
+
+        # 方法1: 提取 JSON_OUTPUT_START ... JSON_OUTPUT_END
+        match = re.search(
+            r"JSON_OUTPUT_START\s*(\{.*?\})\s*JSON_OUTPUT_END", text, re.DOTALL
+        )
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except:
+                pass
+
+        # 方法2: 直接解析 { }
+        start, end = text.find("{"), text.rfind("}")
+        if start != -1 and end > start:
+            try:
+                return json.loads(text[start : end + 1])
+            except:
+                pass
+
+        # 降级: 提取字段
+        data = {
+            "overall_score": 7.0,
+            "dimensions": {},
+            "strengths": [],
+            "concerns": [],
+            "interview_strategy": "标准面试",
+        }
+        m = re.search(r'overall_score["\s:]*([\d.]+)', text, re.I)
+        if m:
+            data["overall_score"] = float(m.group(1))
+        return data
+
+    def start_session_with_resume(
+        self, student_id, job_position_id, resume_evaluation=None
+    ):
+        """创建面试会话，支持简历评价注入"""
+        session_id = self.db_conv.create_session(student_id, job_position_id)
+        job = self.db_conv.get_session_job(session_id)
+        tech = job.get("tech_stack", [])
+        if isinstance(tech, str):
+            import json
+
+            tech = json.loads(tech) if tech else []
+        tech_stack = "、".join(tech)
+
+        from service.agent_core.load_prompt import load_prompt
+
+        system_prompt = load_prompt("prompt/interview/interview_system.md").format(
+            job_name=job["name"], tech_stack=tech_stack
+        )
+
+        if resume_evaluation:
+            eval_text = self._format_resume_eval(resume_evaluation)
+            system_prompt += f"\n\n{eval_text}"
+
+        history = InterviewHistory(system_prompt=system_prompt)
+        self._histories[session_id] = history
+        self._session_levels[session_id] = "easy"
+        return session_id
+
+    def _format_resume_eval(self, evaluation):
+        lines = ["【候选人简历评价】", ""]
+        lines.append(f"综合评分：{evaluation.get('overall_score', 'N/A')}/10")
+        dims = evaluation.get("dimensions", {})
+        name_map = {
+            "skill_match": "技能匹配度",
+            "project_depth": "项目经验深度",
+            "tech_breadth": "技术广度",
+        }
+        for k, v in dims.items():
+            nm = name_map.get(k, k)
+            lines.append(f"  • {nm}：{v.get('score', 7)}/10 - {v.get('comment', '')}")
+        for s in evaluation.get("strengths", []):
+            lines.append(f"  ✓ {s}")
+        for c in evaluation.get("concerns", []):
+            lines.append(f"  △ {c}")
+        return "\n".join(lines)
+
+
 # ── 对话历史类（轻量版，与 DBConversation 解耦） ───────────────────────────
+
 
 class InterviewHistory:
     """Session 级对话历史（内存态）"""
