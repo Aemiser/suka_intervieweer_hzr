@@ -247,30 +247,23 @@ class ChatBubble(QFrame):
     # ══════════════════════════════════════════════════════════════════════════
 
     def start_tts(self) -> None:
-        """
-        启动 TTS 线程。
-        幂等：重复调用无副作用。
-        环境变量 DASHSCOPE_API_KEY 缺失时静默跳过。
-        """
         if not self._tts_capable or self._tts_started:
             return
-
         api_key = os.getenv("DASHSCOPE_API_KEY", "").strip()
         if not api_key:
-            return  # 无 key，静默跳过
+            return
 
-        # 延迟导入，避免在未安装语音依赖的环境中启动失败
         try:
             from service.voice_sdk.audio.player import StreamingAudioPlayer
             from service.voice_sdk.tts.pipeline import stream_interview_tts_from_tokens
         except ImportError:
             return
 
-        self._tts_queue  = queue.Queue()
-        self._tts_player = StreamingAudioPlayer()
-        self._tts_last_token     = ""
+        self._tts_queue = queue.Queue()
+        # ✅ 不在这里构造 StreamingAudioPlayer，移到线程内部
+        self._tts_last_token = ""
         self._tts_sentence_cache = []
-        self._tts_last_sentence  = ""
+        self._tts_last_sentence = ""
 
         def _token_iter():
             assert self._tts_queue is not None
@@ -281,6 +274,8 @@ class ChatBubble(QFrame):
                 yield token
 
         def _runner():
+            # ✅ 在后台线程里才构造播放器，不阻塞主线程
+            self._tts_player = StreamingAudioPlayer()
             try:
                 stream_interview_tts_from_tokens(
                     token_stream=_token_iter(),
@@ -306,37 +301,36 @@ class ChatBubble(QFrame):
         self._tts_started = True
 
     def stop_tts(self, force: bool = False) -> None:
-        """
-        停止 TTS。
-
-        force=False（默认）：发送结束哨兵，等待当前句子播完（最多 8 s）。
-        force=True         ：立即终止，可能截断最后一句。
-        """
         if not self._tts_started:
             return
 
-        if self._tts_queue is not None:
-            try:
-                self._tts_queue.put(None)
-            except Exception:
-                pass
-
-        if self._tts_thread and self._tts_thread.is_alive():
-            timeout = 2.0 if force else 8.0
-            self._tts_thread.join(timeout=timeout)
-            if self._tts_thread.is_alive() and not force:
-                # 仍在合成中，非强制模式不关闭播放器，避免截断
-                return
-
-        if self._tts_player is not None:
-            try:
-                self._tts_player.close()
-                # TODO: 这里的等待有点卡卡卡的感觉
-                self._tts_player.join(timeout=2.0)
-            except Exception:
-                pass
-
-        self._reset_tts_state()
+        if force:
+            # 强制：塞哨兵截断 + 关播放器
+            if self._tts_queue is not None:
+                try:
+                    self._tts_queue.put(None)
+                except Exception:
+                    pass
+            if self._tts_player is not None:
+                try:
+                    self._tts_player.close()
+                except Exception:
+                    pass
+            self._reset_tts_state()
+        else:
+            # 非强制：只标记不再接受新 token，让已有队列自然播完
+            # _runner 里的 _token_iter 会在队列空了之后
+            # 等待下一个 token，所以需要塞哨兵告诉它结束
+            if self._tts_queue is not None:
+                try:
+                    self._tts_queue.put(None)
+                except Exception:
+                    pass
+            # 不 join，不 close player，让线程自己跑完
+            # 只重置 _tts_started 防止新 token 继续投递
+            self._tts_started = False
+            # 注意：不能调 _reset_tts_state，那会把 queue/player 置 None
+            # 线程还在用它们
 
     def _reset_tts_state(self) -> None:
         self._tts_queue   = None

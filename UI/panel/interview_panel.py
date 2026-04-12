@@ -687,6 +687,7 @@ class InterviewPanel(QWidget):
         self._add_system_msg(f"━━  综合得分：{score}/10  ━━")
 
     def _on_stream_done(self, phase: str) -> None:
+        print(f"[_on_stream_done] phase={phase}, _pending_is_finished={self._pending_is_finished}")
         if self._current_ai_bubble is not None:
             self._current_ai_bubble.stop_tts()
         self._current_ai_bubble = None
