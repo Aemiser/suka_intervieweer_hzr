@@ -331,6 +331,7 @@ class ChatBubble(QFrame):
         if self._tts_player is not None:
             try:
                 self._tts_player.close()
+                # TODO: 这里的等待有点卡卡卡的感觉
                 self._tts_player.join(timeout=2.0)
             except Exception:
                 pass

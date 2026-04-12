@@ -1,4 +1,4 @@
-from typing import  List
+from typing import List, Optional
 # ── 对话历史管理 ──────────────────────────────────────────────────────────────
 
 class ConversationHistory:
