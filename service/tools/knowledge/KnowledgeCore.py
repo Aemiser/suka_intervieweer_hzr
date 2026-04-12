@@ -189,12 +189,18 @@ class KnowledgeCore:
             if isinstance(metadata, dict):
                 title = metadata.get("file_name") or metadata.get("title") or ""
             else:
-                title = getattr(metadata, "file_name", "") or getattr(metadata, "title", "") or ""
-            result.append({
-                "text":  str(text).strip(),
-                "score": float(score),
-                "title": str(title),
-            })
+                title = (
+                    getattr(metadata, "file_name", "")
+                    or getattr(metadata, "title", "")
+                    or ""
+                )
+            result.append(
+                {
+                    "text": str(text).strip(),
+                    "score": float(score),
+                    "title": str(title),
+                }
+            )
         print(f"[KnowledgeCore:{self.label}] 检索结果：{len(result)} 条")
         import json
         print(f"[KnowledgeCore:{self.label}] 检索结果 JSON:\n{json.dumps(result, ensure_ascii=False, indent=2)}")
