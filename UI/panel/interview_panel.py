@@ -212,12 +212,12 @@ class NewMessageToast(QPushButton):
         self.setFixedSize(110, 34)
         self.setStyleSheet(f"""
             QPushButton {{
-                background: {T.NEON}; color: #0a0a0f;
+                background: {T.INFO}; color: #0a0a0f;
                 border: none; border-radius: 17px;
                 font-size: 12px; font-weight: 700;
                 font-family: {T.FONT}; padding: 0 12px;
             }}
-            QPushButton:hover {{ background: {T.PURPLE}; color: #ffffff; }}
+            QPushButton:hover {{ background: {T.ACCENT_SOLID}; color: #ffffff; }}
         """)
         self.hide()
 
@@ -375,18 +375,18 @@ class InterviewPanel(QWidget):
         lay.addSpacing(12)
 
         # 简历投递按钮
-        self.resume_btn = ButtonFactory.primary("投递简历", T.PURPLE, height=34)
+        self.resume_btn = ButtonFactory.primary("投递简历", height=34)
         self.resume_btn.setFixedWidth(100)
         self.resume_btn.setToolTip("上传简历，AI 将分析简历内容")
         self.resume_btn.clicked.connect(self._on_resume_submit)
         lay.addWidget(self.resume_btn)
         lay.addSpacing(8)
 
-        self.start_btn = ButtonFactory.solid("开始面试", T.NEON, height=34)
+        self.start_btn = ButtonFactory.primary("开始面试", height=34)
         self.start_btn.setFixedWidth(90)
         self.start_btn.clicked.connect(self._start_interview)
 
-        self.finish_btn = ButtonFactory.solid("结束面试", T.GREEN, height=34)
+        self.finish_btn = ButtonFactory.danger("结束面试", height=34)
         self.finish_btn.setFixedWidth(90)
         self.finish_btn.setEnabled(False)
         self.finish_btn.clicked.connect(self._finish_interview)
@@ -400,11 +400,11 @@ class InterviewPanel(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setStyleSheet(
-            f"QScrollArea {{ background: {T.BG}; border: none; }}"
+            f"QScrollArea {{ background: {T.BASE}; border: none; }}"
         )
 
         self._chat_container = QWidget()
-        self._chat_container.setStyleSheet(f"background: {T.BG};")
+        self._chat_container.setStyleSheet(f"background: {T.BASE};")
         self._chat_layout = QVBoxLayout(self._chat_container)
         self._chat_layout.setContentsMargins(22, 20, 22, 20)
         self._chat_layout.setSpacing(12)
@@ -434,7 +434,7 @@ class InterviewPanel(QWidget):
         dialog.setFixedSize(420, 300)
         dialog.setStyleSheet(f"""
             QFrame {{
-                background: {T.BG};
+                background: {T.BASE};
                 border: 1px solid {T.BORDER};
                 border-radius: 12px;
             }}
@@ -890,7 +890,7 @@ class InterviewPanel(QWidget):
         if loading:
             self.status_lbl.setText(f"⏳  {msg}")
             self.status_lbl.setStyleSheet(
-                f"color: {T.NEON}; font-size: 12px; font-weight: 600;"
+                f"color: {T.INFO}; font-size: 12px; font-weight: 600;"
                 f"font-family: {T.FONT};"
             )
         else:
@@ -911,7 +911,7 @@ class InterviewPanel(QWidget):
         orig_style = self.status_lbl.styleSheet()
         self.status_lbl.setText(f"⚠️  {msg}")
         self.status_lbl.setStyleSheet(
-            f"color: {T.ACCENT}; font-weight: bold; font-size: 12px;"
+            f"color: {T.ACCENT_SOLID}; font-weight: bold; font-size: 12px;"
             f"font-family: {T.FONT};"
         )
         QTimer.singleShot(

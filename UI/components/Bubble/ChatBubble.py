@@ -41,35 +41,35 @@ from UI.components.util.md_to_html import md_to_html
 
 _ROLE_CFG: dict[str, dict] = {
     "user": {
-        "label":       "👤  你",
-        "label_color": T.YELLOW,
-        "bg":          T.USER_BUBBLE,
-        "border":      f"{T.NEON}33",
+        "label":       "你",
+        "label_color": T.WARNING,      # ✅ 原 T.YELLOW → T.WARNING (#B79A7B)
+        "bg":          T.USER_BUBBLE,  # ✅ 已更新为新拟物色 #E8DFD3（Theme 中已定义）
+        "border":      f"{T.BORDER}55",# ✅ 原 T.NEON+alpha → 用主边框色+透明度
         "radius":      "18px 18px 4px 18px",
         "align":       "right",
-        "tts":         False,   # 用户侧不播报
+        "tts":         False,
     },
     "assistant": {
-        "label":       "🤖  AI 助手",
-        "label_color": T.NEON,
-        "bg":          T.AI_BUBBLE,
-        "border":      T.BORDER2,
+        "label":       "AI 助手",
+        "label_color": T.INFO,         # ✅ 原 T.NEON → T.INFO (#A89B8E)
+        "bg":          T.AI_BUBBLE,    # ✅ 已更新为新拟物色 #F5EEE4
+        "border":      T.BORDER,       # ✅ 原 T.BORDER2 → T.BORDER (#D8CCBC)
         "radius":      "4px 18px 18px 18px",
         "align":       "left",
-        "tts":         True,    # 助手侧可播报
+        "tts":         True,
     },
     "ai": {
-        "label":       "🤖  AI 面试官",
-        "label_color": T.NEON,
+        "label":       "AI 面试官",
+        "label_color": T.INFO,         # ✅ 同上
         "bg":          T.AI_BUBBLE,
-        "border":      T.BORDER2,
+        "border":      T.BORDER,       # ✅ 同上
         "radius":      "4px 18px 18px 18px",
         "align":       "left",
-        "tts":         True,    # 面试官侧可播报
+        "tts":         True,
     },
     "system": {
         "label":       "",
-        "label_color": T.TEXT_DIM,
+        "label_color": T.TEXT_DIM,     # ✅ 保留，新主题中仍定义
         "bg":          "transparent",
         "border":      "transparent",
         "radius":      "8px",
@@ -137,8 +137,8 @@ class ChatBubble(QFrame):
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet(
                 f"color: {T.TEXT_DIM}; font-size: 11px;"
-                f"padding: 4px 12px; background: transparent;"
-                f"font-family: {T.FONT};"
+                f"padding: 4px 12px; background: {T.BASE}80;"
+                f"font-family: {T.FONT}; border-radius: 8px;"
             )
             outer.addWidget(lbl)
             return

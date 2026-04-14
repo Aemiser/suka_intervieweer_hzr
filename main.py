@@ -42,7 +42,7 @@ def main():
     window = QMainWindow()
     window.setWindowTitle("AI 模拟面试与能力提升平台")
     window.resize(1340, 880)
-    window.setStyleSheet(f"QMainWindow {{ background: {T.BG}; }}")
+    window.setStyleSheet(f"QMainWindow {{ background: {T.BASE}; }}")
 
     central = QWidget()
     window.setCentralWidget(central)
@@ -52,7 +52,7 @@ def main():
 
     tabs = QTabWidget()
     tabs.setStyleSheet(f"""
-        QTabWidget::pane {{ border: none; background: {T.BG}; }}
+        QTabWidget::pane {{ border: none; background: {T.BASE}; }}
         QTabBar {{ background: {T.SURFACE}; }}
         QTabBar::tab {{
             background: {T.SURFACE}; color: {T.TEXT_DIM};
@@ -61,9 +61,9 @@ def main():
             border-bottom: 2px solid transparent; min-width: 100px;
         }}
         QTabBar::tab:selected {{
-            color: {T.NEON}; border-bottom: 2px solid {T.NEON}; background: {T.BG};
+            color: {T.INFO}; border-bottom: 2px solid {T.INFO}; background: {T.BASE};
         }}
-        QTabBar::tab:hover:!selected {{ color: {T.TEXT}; background: {T.SURFACE2}; }}
+        QTabBar::tab:hover:!selected {{ color: {T.TEXT}; background: {T.SURFACE}; }}
     """)
 
     interview_panel = InterviewPanel(db, interview_engine)
@@ -71,10 +71,10 @@ def main():
     quiz_panel      = QuizPanel(db)
     agent_panel     = HelperPanel(helper_engine)
 
-    tabs.addTab(interview_panel, "🎯  模拟面试")
-    tabs.addTab(quiz_panel,      "📚  题库练习")
-    tabs.addTab(history_panel,   "📊  历史分析")
-    tabs.addTab(agent_panel,     "🤖  AI 助手")
+    tabs.addTab(interview_panel, "模拟面试")
+    tabs.addTab(quiz_panel,      "题库练习")
+    tabs.addTab(history_panel,   "历史分析")
+    tabs.addTab(agent_panel,     "AI 助手")
 
     root.addWidget(tabs)
 

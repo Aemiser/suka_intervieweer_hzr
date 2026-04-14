@@ -41,14 +41,14 @@ class GrowthChart(QWidget):
             return
 
         # 网格线 + Y 轴标签
-        p.setPen(QPen(QColor(T.BORDER2), 1))
+        p.setPen(QPen(QColor(T.BORDER), 1))
         for i in range(6):
             y = PT + ch * (1 - i / 5)
             p.drawLine(PL, int(y), W - PR, int(y))
             p.setPen(QColor(T.TEXT_MUTE))
             p.setFont(QFont(T.FONT_MONO, 8))
             p.drawText(2, int(y) + 4, str(i * 2))
-            p.setPen(QPen(QColor(T.BORDER2), 1))
+            p.setPen(QPen(QColor(T.BORDER), 1))
 
         # 坐标点
         n = len(self.scores)
@@ -75,7 +75,7 @@ class GrowthChart(QWidget):
             p.fillPath(path, QBrush(grad))
 
         # 折线
-        neon = QColor(T.NEON)
+        neon = QColor(T.INFO)
         p.setPen(QPen(neon, 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         for i in range(len(points) - 1):
             p.drawLine(points[i], points[i + 1])

@@ -58,17 +58,35 @@ class ChatInputBar(QWidget):
     # ══════════════════════════════════════════════════════════════════════════
 
     def _build_ui(self) -> None:
+        self.setStyleSheet(f"""
+            QWidget {{
+                background: #EDE4D7;
+                border-radius: 16px;
+            }}
+        """)
+        self.text_edit = _ResizableTextEdit(min_h=40)
+        self.text_edit.setPlaceholderText("输入你的回答...")
+        self.text_edit.textChanged.connect(lambda: self.text_changed.emit(self.text_edit.toPlainText()))
+        self.text_edit.send_requested.connect(self._trigger_send)
+        self.text_edit.setStyleSheet(f"""
+            QTextEdit {{
+                background: #EFE7DB;
+                color: #4E4338;
+                border: 1px solid #D2C3B1;
+                border-radius: 12px;
+                padding: 10px 12px;
+                font-family: {T.FONT};  
+            }}
+            QTextEdit:focus {{
+                border: 1px solid #C7977E;
+            }}
+        """)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
         lay.setSpacing(8)
 
-        self.text_edit = _ResizableTextEdit(min_h=40)
-        self.text_edit.setPlaceholderText("输入你的回答... (Ctrl+Enter 发送)")
-        self.text_edit.textChanged.connect(lambda: self.text_changed.emit(self.text_edit.toPlainText()))
-        self.text_edit.send_requested.connect(self._trigger_send)
-
         # 发送按钮：固定宽度，高度跟随输入框
-        self.send_btn = ButtonFactory.solid("发送", T.NEON, height=44, width=80)
+        self.send_btn = ButtonFactory.raised("发送", height=44, width=80)
         self.send_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.send_btn.clicked.connect(self._trigger_send)
 

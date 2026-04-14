@@ -26,12 +26,12 @@ from UI.components.footer import Footer
 
 # ── 快捷提示 ──────────────────────────────────────────────────────────────────
 HINTS = [
-    ("🎲", "随机抽题", "从题库随机抽5道题", T.NEON),
-    ("🔍", "搜索题目", "搜索 Redis 相关题目", T.PURPLE),
-    ("📊", "题库统计", "查看题库分类统计", T.YELLOW),
-    ("🌐", "联网搜索", "搜索 Spring Boot 3.0 新特性", T.GREEN),
-    ("📚", "知识检索", "什么是 MVCC？", T.NEON),
-    ("🏆", "历史记录", "查看学生ID=1的面试记录", T.ACCENT),
+    ("🎲", "随机抽题", "从题库随机抽5道题", T.INFO),
+    ("🔍", "搜索题目", "搜索 Redis 相关题目", T.ACCENT_SOLID),
+    ("📊", "题库统计", "查看题库分类统计", T.WARNING),
+    ("🌐", "联网搜索", "搜索 Spring Boot 3.0 新特性", T.SUCCESS),
+    ("📚", "知识检索", "什么是 MVCC？", T.INFO),
+    ("🏆", "历史记录", "查看学生ID=1的面试记录", T.ACCENT_SOLID),
 ]
 
 
@@ -90,8 +90,8 @@ class HelperPanel(QWidget):
         self._tool_status = QLabel()
         self._refresh_tool_status()
         self._tool_status.setStyleSheet(f"""
-            font-size: 11px; color: {T.GREEN}; font-weight: 600;
-            background: {T.GREEN}11; border: 1px solid {T.GREEN}33;
+            font-size: 11px; color: {T.SUCCESS}; font-weight: 600;
+            background: {T.SUCCESS}11; border: 1px solid {T.SUCCESS}33;
             border-radius: 10px; padding: 2px 10px;
         """)
 
@@ -108,7 +108,7 @@ class HelperPanel(QWidget):
     def _build_hints(self) -> QFrame:
         frame = QFrame()
         frame.setFixedHeight(52)
-        frame.setStyleSheet(f"QFrame {{ background: {T.SURFACE2}; border-bottom: 1px solid {T.BORDER}; }}")
+        frame.setStyleSheet(f"QFrame {{ background: {T.SURFACE}; border-bottom: 1px solid {T.BORDER}; }}")
         lay = QHBoxLayout(frame)
         lay.setContentsMargins(18, 10, 18, 10)
         lay.setSpacing(8)
@@ -125,10 +125,10 @@ class HelperPanel(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
-        self._scroll.setStyleSheet(f"QScrollArea {{ background: {T.BG}; border: none; }}")
+        self._scroll.setStyleSheet(f"QScrollArea {{ background: {T.BASE}; border: none; }}")
 
         self._chat_widget = QWidget()
-        self._chat_widget.setStyleSheet(f"background: {T.BG};")
+        self._chat_widget.setStyleSheet(f"background: {T.BASE};")
         self._chat_layout = QVBoxLayout(self._chat_widget)
         self._chat_layout.setContentsMargins(20, 18, 20, 10)
         self._chat_layout.setSpacing(10)

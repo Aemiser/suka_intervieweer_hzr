@@ -26,16 +26,16 @@ class ScoreCardBubble(QFrame):
         card.setObjectName("score_card")
         card.setStyleSheet(f"""
             QFrame#score_card {{
-                background: {T.SURFACE2};
-                border: 1px solid {T.NEON}22;
-                border-left: 3px solid {T.NEON};
+                background: {T.SURFACE};
+                border: 1px solid {T.INFO}22;
+                border-left: 3px solid {T.INFO};
                 border-radius: 12px;
             }}
         """)
 
         shadow = QGraphicsDropShadowEffect(card)
         shadow.setBlurRadius(20)
-        shadow.setColor(QColor(T.NEON).darker(300))
+        shadow.setColor(QColor(T.INFO).darker(300))
         shadow.setOffset(0, 4)
         card.setGraphicsEffect(shadow)
 
@@ -46,7 +46,7 @@ class ScoreCardBubble(QFrame):
         # ── 标题 ──────────────────────────────────────────────────────────────
         title = QLabel("📊  本题评估报告")
         title.setStyleSheet(
-            f"font-weight: 700; font-size: 13px; color: {T.NEON};"
+            f"font-weight: 700; font-size: 13px; color: {T.INFO};"
             f"font-family: {T.FONT}; background: transparent;"
         )
         card_lay.addWidget(title)
@@ -56,10 +56,10 @@ class ScoreCardBubble(QFrame):
         scores_row.setSpacing(0)
 
         score_items = [
-            ("技术", eval_result.tech_score,    T.NEON),
-            ("逻辑", eval_result.logic_score,   T.PURPLE),
-            ("深度", eval_result.depth_score,   T.YELLOW),
-            ("表达", eval_result.clarity_score, T.GREEN),
+            ("技术", eval_result.tech_score,    T.INFO),
+            ("逻辑", eval_result.logic_score,   T.ACCENT_SOLID),
+            ("深度", eval_result.depth_score,   T.WARNING),
+            ("表达", eval_result.clarity_score, T.SUCCESS),
         ]
         for label, score, color in score_items:
             item_frame = QFrame()
@@ -87,14 +87,14 @@ class ScoreCardBubble(QFrame):
         # 分隔线
         sep = QFrame()
         sep.setFrameShape(QFrame.VLine)
-        sep.setStyleSheet(f"color: {T.BORDER2}; background: {T.BORDER2};")
+        sep.setStyleSheet(f"color: {T.BORDER}; background: {T.BORDER};")
         sep.setFixedWidth(1)
         scores_row.addWidget(sep)
 
         # 综合得分
         overall_frame = QFrame()
         overall_frame.setStyleSheet(
-            f"background: {T.GREEN}11; border-radius: 8px;"
+            f"background: {T.SUCCESS}11; border-radius: 8px;"
         )
         overall_lay = QVBoxLayout(overall_frame)
         overall_lay.setContentsMargins(14, 8, 14, 8)
@@ -103,13 +103,13 @@ class ScoreCardBubble(QFrame):
         overall_val = QLabel(f"{eval_result.overall_score:.1f}")
         overall_val.setAlignment(Qt.AlignCenter)
         overall_val.setStyleSheet(
-            f"font-size: 26px; font-weight: 900; color: {T.GREEN};"
+            f"font-size: 26px; font-weight: 900; color: {T.SUCCESS};"
             f"font-family: {T.FONT_MONO}; background: transparent;"
         )
         overall_name = QLabel("综合")
         overall_name.setAlignment(Qt.AlignCenter)
         overall_name.setStyleSheet(
-            f"font-size: 10px; color: {T.GREEN}AA; background: transparent;"
+            f"font-size: 10px; color: {T.SUCCESS}AA; background: transparent;"
         )
         overall_lay.addWidget(overall_val)
         overall_lay.addWidget(overall_name)
@@ -123,7 +123,7 @@ class ScoreCardBubble(QFrame):
             tip.setWordWrap(True)
             tip.setStyleSheet(f"""
                 font-size: 12px; color: {T.TEXT_DIM};
-                background: {T.SURFACE3};
+                background: {T.SURFACE};
                 border-radius: 6px;
                 padding: 8px 10px;
                 font-family: {T.FONT};

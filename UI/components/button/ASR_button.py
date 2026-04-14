@@ -151,16 +151,16 @@ class AsrButton(QWidget):
         ctrl_row.setSpacing(8)
 
         # 1. 初始/空闲状态按钮
-        self.btn_start = ButtonFactory.solid("🎤 语音", T.PURPLE, height=48, width=90)
+        self.btn_start = ButtonFactory.raised("语音", height=48, width=90)
         self.btn_start.clicked.connect(self._start_recording)
 
         # 2. 录音中：停止按钮
-        self.btn_stop = ButtonFactory.solid("⏹ 停止录音", T.NEON, height=48, width=100)
+        self.btn_stop = ButtonFactory.raised("停止录音", height=48, width=100)
         self.btn_stop.setVisible(False)
         self.btn_stop.clicked.connect(self._stop_recording)
 
         # 3. 录音中：取消按钮
-        self.btn_cancel = ButtonFactory.solid("❌ 取消", T.ACCENT, height=48, width=80)
+        self.btn_cancel = ButtonFactory.danger("取消", height=48, width=80)
         self.btn_cancel.setVisible(False)
         self.btn_cancel.clicked.connect(self._cancel_recording)
 
@@ -171,7 +171,14 @@ class AsrButton(QWidget):
 
         # 预览控制栏（默认隐藏）
         self.preview_frame = QFrame()
-        self.preview_frame.setStyleSheet(f"QFrame {{ background: {T.SURFACE}; border: 1px solid {T.BORDER}; border-radius: 8px; }}")
+        # preview_frame 样式
+        self.preview_frame.setStyleSheet("""
+            QFrame {
+                background: #EDE4D7;
+                border: 1px solid #D8CCBC;
+                border-radius: 12px;
+            }
+        """)
         self.preview_frame.setVisible(False)
         vp_lay = QHBoxLayout(self.preview_frame)
         vp_lay.setContentsMargins(8, 4, 8, 4)
@@ -181,17 +188,17 @@ class AsrButton(QWidget):
         self.lbl_preview.setStyleSheet(f"color: {T.TEXT}; font-size:12px;")
         self.lbl_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
-        self.btn_play = ButtonFactory.solid("▶ 播放", T.TEXT_DIM, height=30, width=80)
+        self.btn_play = ButtonFactory.icon("play_arrow", size=30, tooltip="播放录音")
         self.btn_play.setVisible(False)
         self.btn_play.clicked.connect(self._on_play_clicked)
 
-        self.btn_transcribe = ButtonFactory.solid("转文字", T.GREEN, height=30, width=80)
+        self.btn_transcribe = ButtonFactory.raised("转文字", height=30, width=80)
         self.btn_transcribe.clicked.connect(self._on_transcribe_clicked)
 
-        self.btn_send = ButtonFactory.solid("发送", T.NEON, height=30, width=80)
+        self.btn_send       = ButtonFactory.raised("发送", height=30, width=80)
         self.btn_send.clicked.connect(self._on_send_clicked)
 
-        self.btn_clear = ButtonFactory.solid("清除", T.ACCENT, height=30, width=80)
+        self.btn_clear = ButtonFactory.danger("清除", height=30, width=80)
         self.btn_clear.clicked.connect(self._on_clear_preview)
 
         vp_lay.addWidget(self.lbl_preview)
