@@ -70,8 +70,8 @@ class GrowthChart(QWidget):
             path.lineTo(points[-1].x(), PT + ch)
 
             grad = QLinearGradient(0, PT, 0, PT + ch)
-            grad.setColorAt(0, QColor(0, 212, 255, 50))
-            grad.setColorAt(1, QColor(0, 212, 255, 0))
+            grad.setColorAt(0, QColor(T.SURFACE2))
+            grad.setColorAt(1, QColor(T.SURFACE2_LIGHT))
             p.fillPath(path, QBrush(grad))
 
         # 折线

@@ -130,9 +130,9 @@ class InterviewHeader(QFrame):
         card_lay.addWidget(job_lbl)
         card_lay.addWidget(self.job_combo)
 
-        card_lay.addSpacing(4)
+        card_lay.addSpacing(120)  # 原 4 → 20
         card_lay.addWidget(self._h_line())
-        card_lay.addSpacing(4)
+        card_lay.addSpacing(120)  # 原 4 → 20
 
         # --- 卡片内部：操作按钮 ---
         self.resume_btn = ButtonFactory.solid("投递简历", T.GREEN, height=38)
@@ -149,6 +149,8 @@ class InterviewHeader(QFrame):
         self.finish_btn.clicked.connect(self.finish_clicked)
         card_lay.addWidget(self.finish_btn)
 
+        card_lay.addStretch()  # 将按钮区推向上方，下方留白
+        self._card.setMinimumHeight(600)
         # 将卡片加入外层布局
         outer_lay.addWidget(self._card)
 
@@ -176,7 +178,7 @@ class InterviewHeader(QFrame):
         line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
         # 适当调暗一点颜色，在 SURFACE3 背景上看起来更自然
-        line.setStyleSheet(f"background: {T.SURFACE3_DARK}; max-height: 1px;")
+        line.setStyleSheet(f"background: {T.SURFACE2_LIGHT}; max-height: 1px;")
         return line
 
     # ── 公开方法（逻辑完全保留）─────────────────────────────────────────────

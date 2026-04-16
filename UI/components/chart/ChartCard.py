@@ -16,13 +16,12 @@ class ChartCard(QFrame):
         super().__init__(parent)
         self.setStyleSheet(f"""
             QFrame {{
-                background: {T.SURFACE};
-                border: 1px solid {T.BORDER};
+                background: {T.SURFACE3};
                 border-radius: 12px;
             }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(18)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        shadow.setOffset(0, 4)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(T.SURFACE3_DARK))
+        shadow.setOffset(0, 0)
         self.setGraphicsEffect(shadow)

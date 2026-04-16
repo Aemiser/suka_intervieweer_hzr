@@ -80,7 +80,7 @@ class RadarChart(QWidget):
         ]
         poly = QPolygonF(data_pts + [data_pts[0]])
         p.setPen(QPen(QColor(T.NEON), 2))
-        p.setBrush(QColor(0, 212, 255, 35))
+        p.setBrush(QColor(T.BG_LIGHT))
         p.drawPolygon(poly)
 
         # 数据节点

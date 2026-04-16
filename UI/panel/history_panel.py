@@ -32,7 +32,7 @@ class HistoryPanel(QWidget):
         layout.addWidget(self._build_header())
 
         content = QWidget()
-        content.setStyleSheet(f"background: {T.BG_DARK};")
+        content.setStyleSheet(f"background: {T.BG};")
         c_lay = QVBoxLayout(content)
         c_lay.setContentsMargins(26, 20, 26, 20)
         c_lay.setSpacing(18)
