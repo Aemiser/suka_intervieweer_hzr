@@ -32,7 +32,7 @@ class HistoryPanel(QWidget):
         layout.addWidget(self._build_header())
 
         content = QWidget()
-        content.setStyleSheet(f"background: {T.BG};")
+        content.setStyleSheet(f"background: {T.BASE};")
         c_lay = QVBoxLayout(content)
         c_lay.setContentsMargins(26, 20, 26, 20)
         c_lay.setSpacing(18)
@@ -65,7 +65,7 @@ class HistoryPanel(QWidget):
         self.student_combo = QComboBox()
         self.student_combo.setFixedSize(160, 34)
 
-        sync_btn = ButtonFactory.solid("同步数据", T.NEON, height=34)
+        sync_btn = ButtonFactory.solid("同步数据", T.INFO, height=34)
         sync_btn.setFixedWidth(90)
         sync_btn.clicked.connect(self._refresh)
 
@@ -88,7 +88,7 @@ class HistoryPanel(QWidget):
         g_lay.setContentsMargins(16, 14, 16, 14)
         g_title = QLabel("📈  综合得分趋势")
         g_title.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {T.NEON}; "
+            f"font-size: 13px; font-weight: 700; color: {T.INFO}; "
             f"background: transparent; font-family: {T.FONT};"
         )
         self.growth_chart = GrowthChart()
@@ -101,7 +101,7 @@ class HistoryPanel(QWidget):
         r_lay.setContentsMargins(16, 14, 16, 14)
         r_title = QLabel("🎯  最近能力维度")
         r_title.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {T.PURPLE}; "
+            f"font-size: 13px; font-weight: 700; color: {T.ACCENT_SOLID}; "
             f"background: transparent; font-family: {T.FONT};"
         )
         self.radar_chart = RadarChart()
@@ -120,7 +120,7 @@ class HistoryPanel(QWidget):
 
         title = QLabel("📝  最近面试表现回顾")
         title.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {T.YELLOW}; "
+            f"font-size: 13px; font-weight: 700; color: {T.WARNING}; "
             f"background: transparent; font-family: {T.FONT};"
         )
 

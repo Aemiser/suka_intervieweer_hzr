@@ -186,7 +186,7 @@ class ResumeSubmitButton(QWidget):
                 text-align: center;
             }}
             QProgressBar::chunk {{
-                background: {T.NEON};
+                background: {T.INFO};
                 border-radius: 3px;
             }}
         """)
@@ -218,7 +218,7 @@ class ResumeSubmitButton(QWidget):
         btn_lay.addWidget(self.btn_select)
 
         # 投递按钮（主操作）
-        self.btn_submit = ButtonFactory.solid("投递简历", T.NEON, height=42, width=120)
+        self.btn_submit = ButtonFactory.solid("投递简历", T.INFO, height=42, width=120)
         self.btn_submit.setEnabled(False)
         self.btn_submit.clicked.connect(self._on_submit_clicked)
         btn_lay.addWidget(self.btn_submit)
