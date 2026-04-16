@@ -20,22 +20,21 @@ from UI.components import (
 
 # ── 分类色彩映射（适配新拟物浅色主题）─────────────────────────────────────────
 CLASSIFY_COLORS: dict[str, str] = {
-    "Java基础":       T.ACCENT_SOLID,  # ✅ 陶土色 #BE886F
-    "JVM":            T.INFO,          # ✅ 中性灰棕 #A89B8E
-    "Spring":         T.WARNING,       # ✅ 低饱和暖棕 #B79A7B
-    "MySQL":          T.SUCCESS,       # ✅ 低饱和复古绿 #8FA887
+    "Java基础":       T.YELLOW,
+    "JVM":            T.INFO,
+    "Spring":         T.WARNING,
+    "MySQL":          T.SUCCESS,
     "Redis":          T.SUCCESS,
     "JavaScript":     T.WARNING,
-    "Vue/React":      T.INFO,          # ✅ 替代原 #00D2D3
-    "计算机网络":     T.ACCENT_SOLID,
+    "Vue/React":      T.INFO,
+    "计算机网络":     T.YELLOW,
     "数据结构与算法": T.INFO,
 }
 
 LEVEL_COLORS: dict[str, tuple[str, str]] = {
-    # (文字色, 背景色+透明度) - 透明度用 #RRGGBBAA 格式
-    "初级": (T.SUCCESS,   f"{T.SUCCESS}20"),   # 20 = ~12% 透明度
+    "初级": (T.SUCCESS,   f"{T.SUCCESS}20"),
     "中级": (T.WARNING,   f"{T.WARNING}20"),
-    "高级": (T.ACCENT_SOLID, f"{T.ACCENT_SOLID}20"),
+    "高级": (T.YELLOW,    f"{T.YELLOW}20"),
 }
 
 _ORDER_OPTIONS = [
@@ -47,6 +46,24 @@ _ORDER_OPTIONS = [
 ]
 
 DEFAULT_PAGE_SIZE = 10
+
+# ── 从新 Theme 推导出的替代值 ────────────────────────────────────────────────
+# T.BASE        → T.BG          米白灰底，原来的"基底层"
+# T.HOVER_TINT  → T.SURFACE2    悬浮时用次级区块色
+# T.PRESSED_TINT→ T.SURFACE3    按压态用更深的区块色
+# T.SHADOW_DARK → T.SURFACE_DARK 新拟态暗阴影色
+# T.BORDER_FOCUS→ T.BORDER2     聚焦边框用强调分割线
+# T.DISABLED_TEXT→T.TEXT_MUTE   禁用文字用最浅文字色
+# T.RADIUS_SM   → 6  (px)
+# T.RADIUS_LG   → 16 (px)
+_BASE          = T.BG
+_HOVER_TINT    = T.SURFACE2
+_PRESSED_TINT  = T.SURFACE3
+_SHADOW_DARK   = T.SURFACE_DARK
+_BORDER_FOCUS  = T.BORDER2
+_DISABLED_TEXT = T.TEXT_MUTE
+_RADIUS_SM     = 6
+_RADIUS_LG     = 16
 
 
 def _cls_color(cls: str) -> str:
@@ -78,16 +95,16 @@ class QuestionCard(QFrame):
                         background: {T.SURFACE};
                         border: 1px solid {T.BORDER};
                         border-left: 3px solid {cls_color};
-                        border-radius: {T.RADIUS_SM}px;
+                        border-radius: 5px;
                     }}
                     QFrame#QCard:hover {{
-                        background: {T.HOVER_TINT};
+                        background: {_HOVER_TINT};
                         border-color: {cls_color}66;
                     }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(12)
-        shadow.setColor(QColor(T.SHADOW_DARK))  # ✅ 使用新主题暗阴影
+        shadow.setColor(QColor(_SHADOW_DARK))
         shadow.setOffset(2, 3)
         self.setGraphicsEffect(shadow)
 
@@ -138,9 +155,9 @@ class QuestionCard(QFrame):
         self.answer_frame.setVisible(False)
         self.answer_frame.setStyleSheet(f"""
                     QFrame {{
-                        background: {T.BASE};
+                        background: {_BASE};
                         border: 1px dashed {T.BORDER};
-                        border-radius: {T.RADIUS_SM}px;
+                        border-radius: {_RADIUS_SM}px;
                     }}
         """)
         ans_lay = QVBoxLayout(self.answer_frame)
@@ -165,7 +182,7 @@ class QuestionCard(QFrame):
 
         # 操作按钮
         btn_row = QHBoxLayout()
-        self.toggle_btn = ButtonFactory.raised("查看答案", height=28, shadow=False)
+        self.toggle_btn = ButtonFactory.primary("查看答案", height=28)
         self.toggle_btn.setFixedWidth(100)
         self.toggle_btn.clicked.connect(self._toggle_answer)
         btn_row.addWidget(self.toggle_btn)
@@ -220,12 +237,12 @@ class PaginationBar(QFrame):
         self._jump_box.setPlaceholderText("页")
         self._jump_box.setStyleSheet(f"""
             QLineEdit {{
-                background: {T.BASE}; border: 1px solid {T.BORDER};
+                background: {_BASE}; border: 1px solid {T.BORDER};
                 border-radius: 6px; color: {T.TEXT};
                 font-size: 12px; font-family: {T.FONT_MONO};
                 padding: 2px 4px;
             }}
-            QLineEdit:focus {{ border-color: {T.INFO}; }}
+            QLineEdit:focus {{ border-color: {_BORDER_FOCUS}; }}
         """)
         self._jump_box.returnPressed.connect(self._on_jump)
 
@@ -238,7 +255,7 @@ class PaginationBar(QFrame):
         self._size_combo.setCurrentIndex(1)
         self._size_combo.setStyleSheet(f"""
             QComboBox {{
-                background: {T.BASE}; border: 1px solid {T.BORDER};
+                background: {_BASE}; border: 1px solid {T.BORDER};
                 border-radius: 6px; color: {T.TEXT}; font-size: 12px;
                 padding: 2px 6px; font-family: {T.FONT};
             }}
@@ -290,10 +307,10 @@ class PaginationBar(QFrame):
                         background: {T.SURFACE}; color: {T.TEXT_DIM};
                         border: 1px solid {T.BORDER}; border-radius: 6px; font-size: 11px;
                     }}
-                    QPushButton:hover {{ color: {T.INFO}; border-color: {T.BORDER_FOCUS}; }}
-                    QPushButton:disabled {{ color: {T.DISABLED_TEXT}; border-color: {T.BORDER}; }}
+                    QPushButton:hover {{ color: {T.INFO}; border-color: {_BORDER_FOCUS}; }}
+                    QPushButton:disabled {{ color: {_DISABLED_TEXT}; border-color: {T.BORDER}; }}
                     QPushButton:pressed {{
-                        background: {T.PRESSED_TINT};
+                        background: {_PRESSED_TINT};
                         padding-top: 1px;
                         padding-left: 1px;
                     }}
@@ -368,10 +385,10 @@ class QuizPanel(QWidget):
                         background: qlineargradient(
                             x1:0, y1:0, x2:0, y2:1,
                             stop:0 {T.SURFACE},
-                            stop:1 {T.BASE}
+                            stop:1 {_BASE}
                         );
                         border-bottom: 1px solid {T.BORDER};
-                        border-radius: 0 0 {T.RADIUS_LG}px {T.RADIUS_LG}px;
+                        border-radius: 0 0 {_RADIUS_LG}px {_RADIUS_LG}px;
                     }}
         """)
         lay = QVBoxLayout(hero)
@@ -467,7 +484,7 @@ class QuizPanel(QWidget):
         lay.addStretch()
 
         all_btn = ButtonFactory.primary("全部题目", height=34)
-        ref_btn = ButtonFactory.raised("🔄 刷新", height=34, shadow=False)
+        ref_btn = ButtonFactory.ghost("🔄 刷新", height=34)
         ref_btn.setFixedSize(60, 34)
         all_btn.clicked.connect(self._show_all)
         ref_btn.clicked.connect(self.refresh)
@@ -480,10 +497,10 @@ class QuizPanel(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
-        self._scroll.setStyleSheet(f"QScrollArea {{ background: {T.BASE}; border: none; }}")
+        self._scroll.setStyleSheet(f"QScrollArea {{ background: {_BASE}; border: none; }}")
 
         self._content_widget = QWidget()
-        self._content_widget.setStyleSheet(f"background: {T.BASE};")
+        self._content_widget.setStyleSheet(f"background: {_BASE};")
         self._content_layout = QVBoxLayout(self._content_widget)
         self._content_layout.setContentsMargins(22, 18, 22, 18)
         self._content_layout.setSpacing(12)
@@ -608,8 +625,8 @@ class QuizPanel(QWidget):
             ("📚", str(total),     "总题数", T.INFO),
             ("🟢", str(easy),      "初级",   T.SUCCESS),
             ("🟡", str(mid),       "中级",   T.WARNING),
-            ("🔴", str(hard),      "高级",   T.ACCENT_SOLID),
-            ("🗂", str(cls_count), "分类",   T.ACCENT_SOLID),
+            ("🔴", str(hard),      "高级",   T.YELLOW),
+            ("🗂", str(cls_count), "分类",   T.YELLOW),
         ]:
             self._stats_container.addWidget(StatBadge(icon, val, lbl, color))
 
