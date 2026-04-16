@@ -17,6 +17,7 @@ from service.voice_sdk.audio.recorder import VoiceRecorder
 from service.voice_sdk.stt.client import STTClient
 from service.voice_sdk.models import RecordBundle, VoiceResult  # 补充 VoiceResult
 from ..ButtonFactory import ButtonFactory, T
+from UI.components.info.icon import Icons,IconSize
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -107,17 +108,17 @@ class AsrButton(QWidget):
             # 样式表原始内容（排查 :disabled 是否生效）
             style = btn.styleSheet()
             if ":disabled" in style:
-                print(f"  • :disabled 样式   : ✅ 已定义")
+                print(f"  • :disabled 样式   : 已定义")
             else:
-                print(f"  • :disabled 样式   : ❌ 未定义 ⚠️")
+                print(f"  • :disabled 样式   : 未定义 ⚠️")
             # 直接尝试调用 setEnabled 看是否报错
             try:
                 btn.setEnabled(btn.isEnabled())  # 设为当前值，测试方法是否存在
-                print(f"  • setEnabled() 调用: ✅ 成功")
+                print(f"  • setEnabled() 调用: 成功")
             except AttributeError as e:
-                print(f"  • setEnabled() 调用: ❌ 报错 -> {e}")
+                print(f"  • setEnabled() 调用: 报错 -> {e}")
             except Exception as e:
-                print(f"  • setEnabled() 调用: ❌ 异常 -> {e}")
+                print(f"  • setEnabled() 调用: 异常 -> {e}")
             print(f"  • parent enabled   : {btn.parent().isEnabled() if btn.parent() else 'N/A'}")
 
     def __init__(self, parent=None):
@@ -151,16 +152,16 @@ class AsrButton(QWidget):
         ctrl_row.setSpacing(8)
 
         # 1. 初始/空闲状态按钮
-        self.btn_start = ButtonFactory.solid("🎤 语音", T.PURPLE, height=48, width=90)
+        self.btn_start = ButtonFactory.solid("语音", T.NEON, height=48, width=90)
         self.btn_start.clicked.connect(self._start_recording)
 
         # 2. 录音中：停止按钮
-        self.btn_stop = ButtonFactory.solid("⏹ 停止录音", T.NEON, height=48, width=100)
+        self.btn_stop = ButtonFactory.solid("停止录音", T.YELLOW, height=48, width=100)
         self.btn_stop.setVisible(False)
         self.btn_stop.clicked.connect(self._stop_recording)
 
         # 3. 录音中：取消按钮
-        self.btn_cancel = ButtonFactory.solid("❌ 取消", T.ACCENT, height=48, width=80)
+        self.btn_cancel = ButtonFactory.solid("取消", T.ACCENT, height=48, width=80)
         self.btn_cancel.setVisible(False)
         self.btn_cancel.clicked.connect(self._cancel_recording)
 
@@ -181,11 +182,11 @@ class AsrButton(QWidget):
         self.lbl_preview.setStyleSheet(f"color: {T.TEXT}; font-size:12px;")
         self.lbl_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
-        self.btn_play = ButtonFactory.solid("▶ 播放", T.TEXT_DIM, height=30, width=80)
+        self.btn_play = ButtonFactory.solid("播放", T.TEXT_DIM, height=30, width=80)
         self.btn_play.setVisible(False)
         self.btn_play.clicked.connect(self._on_play_clicked)
 
-        self.btn_transcribe = ButtonFactory.solid("转文字", T.GREEN, height=30, width=80)
+        self.btn_transcribe = ButtonFactory.solid("转文字", T.GREEN, height=30, width=100)
         self.btn_transcribe.clicked.connect(self._on_transcribe_clicked)
 
         self.btn_send = ButtonFactory.solid("发送", T.NEON, height=30, width=80)
@@ -204,6 +205,22 @@ class AsrButton(QWidget):
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         QTimer.singleShot(100, lambda: self._debug_btn_state("INIT"))  # 延迟确保布局完成
 
+        self._set_icon()
+    # ══════════════════════════════════════════════════════════════════════
+    # 图标集中注册区 (按状态映射)
+    # ══════════════════════════════════════════════════════════════════════
+
+    def _set_icon(self) -> None:
+        print("setIcon In ASR_button")
+        """集中注册 AsrButton 在不同状态下的图标"""
+        self.btn_start.setIcon(Icons.get("mic", IconSize.MD))
+        self.btn_stop.setIcon(Icons.get("stop", IconSize.MD))
+        self.btn_cancel.setIcon(Icons.get("cancel", IconSize.MD))
+        self.btn_send.setIcon(Icons.get("send", IconSize.MD))
+        self.btn_clear.setIcon(Icons.get("delete", IconSize.MD))
+        self.btn_transcribe.setIcon(Icons.get("subtitles", IconSize.MD))
+        self.btn_play.setIcon(Icons.get("play_arrow", IconSize.MD))
+
     # ══════════════════════════════════════════════════════════════════════════
     # 交互逻辑（明确的状态流转）
     # ══════════════════════════════════════════════════════════════════════════
@@ -218,7 +235,7 @@ class AsrButton(QWidget):
         self.btn_start.setVisible(False)
         self.btn_stop.setEnabled(True)
         self.btn_stop.setVisible(True)
-        self.btn_stop.setText("⏹ 停止录音")
+        self.btn_stop.setText("停止录音")
         self.btn_cancel.setEnabled(True)
         self.btn_cancel.setVisible(True)
 
@@ -239,7 +256,7 @@ class AsrButton(QWidget):
 
         self.btn_stop.setEnabled(False)
         self.btn_cancel.setEnabled(False)
-        self.btn_stop.setText("⏳ 处理中...")
+        self.btn_stop.setText("处理中...")
         self.status_changed.emit("正在结束录音...")
         self._stop_timeout_timer.start(3000)
         self._debug_btn_state("stop_recording")
@@ -370,7 +387,7 @@ class AsrButton(QWidget):
         self.btn_start.setEnabled(True)
         self.btn_start.setVisible(True)
 
-        self.btn_stop.setText("⏹ 停止录音")
+        self.btn_stop.setText("停止录音")
         self.btn_stop.setEnabled(True)
         self.btn_stop.setVisible(False)
 

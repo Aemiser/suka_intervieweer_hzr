@@ -49,7 +49,7 @@ class ButtonFactory:
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet(f"""
                 QPushButton {{
-                    background: {color}; color: #0A0A14;
+                    background: {color}; color: {T.BG};
                     border: none; border-radius: {height // 2}px;
                     font-size: 13px; font-weight: 800;
                     padding: 0 18px; font-family: {T.FONT};
