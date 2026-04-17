@@ -98,6 +98,7 @@ class QuestionCard(QFrame):
                 background: {T.SURFACE};
                 border: 1px solid {T.BORDER};
                 border-radius: 12px;
+                min-height: 80px;
             }}
             QFrame#QCard:hover {{
                 background: {_HOVER_TINT};
@@ -110,6 +111,9 @@ class QuestionCard(QFrame):
         shadow.setOffset(0, 2)
         self.setGraphicsEffect(shadow)
 
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.setMinimumHeight(80)
+
         lay = QHBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14)
         lay.setSpacing(16)
@@ -117,12 +121,17 @@ class QuestionCard(QFrame):
         # 左侧内容区
         content_col = QVBoxLayout()
         content_col.setSpacing(8)
+        content_col.setStretch(0, 0)
+        content_col.setStretch(1, 0)
 
         # 标签行
         tags_row = QHBoxLayout()
         tags_row.setSpacing(6)
 
-        tags_row.addWidget(QLabel(f"#{global_index:03d}"))
+        num_lbl = QLabel(f"#{global_index:03d}")
+        num_lbl.setStyleSheet(
+            f"color: {T.TEXT_MUTE}; font-size: 11px; font-weight: 700;"
+        )
         cls_tag = QLabel(f" {classify} ")
         cls_tag.setStyleSheet(f"""
             background: {cls_color}18; color: {cls_color};
@@ -134,6 +143,7 @@ class QuestionCard(QFrame):
             background: {lvl_bg}; color: {lvl_fg};
             border-radius: 4px; font-size: 11px; font-weight: 600; padding: 2px 8px;
         """)
+        tags_row.addWidget(num_lbl)
         tags_row.addWidget(cls_tag)
         tags_row.addWidget(lvl_tag)
         tags_row.addStretch()
@@ -142,6 +152,7 @@ class QuestionCard(QFrame):
         # 题目内容
         q_lbl = QLabel(content)
         q_lbl.setWordWrap(True)
+        q_lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         q_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         q_lbl.setStyleSheet(f"""
             color: {T.TEXT}; font-size: 14px; line-height: 1.6;
@@ -180,25 +191,24 @@ class QuestionCard(QFrame):
         ans_lay.addLayout(ans_title_h)
         ans_lay.addWidget(ans_text)
         content_col.addWidget(self.answer_frame)
-        content_col.addStretch()
 
         lay.addLayout(content_col, stretch=1)
 
         # 右侧操作按钮
         self.toggle_btn = QPushButton("查看答案")
-        self.toggle_btn.setFixedHeight(34)
+        self.toggle_btn.setFixedSize(100, 34)
         self.toggle_btn.setCursor(Qt.PointingHandCursor)
         self.toggle_btn.setIcon(Icons.get("visibility", IconSize.SM))
         self.toggle_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {T.SURFACE}; color: {T.TEXT_DIM};
                 border: 1px solid {T.BORDER}; border-radius: 8px;
-                font-size: 12px; font-weight: 600; padding: 0 16px;
+                font-size: 12px; font-weight: 600; padding: 0 12px 0 8px;
             }}
             QPushButton:hover {{ color: {T.INFO}; border-color: {T.INFO}; }}
         """)
         self.toggle_btn.clicked.connect(self._toggle_answer)
-        lay.addWidget(self.toggle_btn, alignment=Qt.AlignCenter)
+        lay.addWidget(self.toggle_btn, alignment=Qt.AlignTop)
 
     def _toggle_answer(self) -> None:
         self._answer_visible = not self._answer_visible
@@ -478,7 +488,6 @@ class QuizPanel(QWidget):
         self._content_layout = QVBoxLayout(self._content_widget)
         self._content_layout.setContentsMargins(16, 16, 16, 16)
         self._content_layout.setSpacing(12)
-        self._content_layout.addStretch()
 
         self._scroll.setWidget(self._content_widget)
         return self._scroll
@@ -564,6 +573,7 @@ class QuizPanel(QWidget):
             card = QuestionCard(qid, cls, lvl, content, answer, offset + i + 1)
             self._content_layout.insertWidget(i, card)
 
+        self._content_layout.addStretch()
         QTimer.singleShot(50, lambda: self._scroll.verticalScrollBar().setValue(0))
 
     def _make_filter_with_icon(
