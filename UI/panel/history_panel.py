@@ -6,14 +6,25 @@
 import json
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QComboBox, QTextEdit, QFrame,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QComboBox,
+    QTextEdit,
+    QFrame,
 )
 
 from UI.components import (
-    T, ButtonFactory, ChartCard, GrowthChart, RadarChart,
-    GLOBAL_QSS, combo_qss,
+    T,
+    ButtonFactory,
+    ChartCard,
+    GrowthChart,
+    RadarChart,
+    GLOBAL_QSS,
+    combo_qss,
 )
+from UI.components.info.icon import Icons, IconSize
 
 
 class HistoryPanel(QWidget):
@@ -54,22 +65,32 @@ class HistoryPanel(QWidget):
         lay.setContentsMargins(26, 0, 26, 0)
         lay.setSpacing(12)
 
-        title = QLabel("📊  成长实验室")
+        title_icon = QLabel()
+        title_icon.setPixmap(Icons.colored_pixmap("query_stats", T.INFO, IconSize.MD))
+        title = QLabel("成长实验室")
         title.setStyleSheet(
             f"font-size: 16px; font-weight: 800; color: {T.TEXT}; font-family: {T.FONT};"
         )
+        title_h = QHBoxLayout()
+        title_h.setSpacing(8)
+        title_h.addWidget(title_icon)
+        title_h.addWidget(title)
 
-        member_lbl = QLabel("成员")
-        member_lbl.setStyleSheet(f"color: {T.TEXT_DIM}; font-size: 12px;")
+        member_lbl = QLabel()
+        member_lbl.setPixmap(Icons.colored_pixmap("group", T.TEXT_DIM, IconSize.SM))
+        member_lbl.setFixedWidth(80)
+        member_lbl.setStyleSheet("background: transparent;")
 
         self.student_combo = QComboBox()
         self.student_combo.setFixedSize(160, 34)
 
-        sync_btn = ButtonFactory.solid("同步数据", T.INFO, height=34)
-        sync_btn.setFixedWidth(90)
+        sync_btn = ButtonFactory.solid(
+            "同步数据", T.INFO, height=34, icon_name="sync", icon_size=IconSize.SM
+        )
+        sync_btn.setFixedWidth(110)
         sync_btn.clicked.connect(self._refresh)
 
-        lay.addWidget(title)
+        lay.addLayout(title_h)
         lay.addStretch()
         lay.addWidget(member_lbl)
         lay.addWidget(self.student_combo)
@@ -86,26 +107,40 @@ class HistoryPanel(QWidget):
         growth_card = ChartCard()
         g_lay = QVBoxLayout(growth_card)
         g_lay.setContentsMargins(16, 14, 16, 14)
-        g_title = QLabel("📈  综合得分趋势")
+        g_title_h = QHBoxLayout()
+        g_title_h.setSpacing(6)
+        g_title_icon = QLabel()
+        g_title_icon.setPixmap(Icons.colored_pixmap("trending_up", T.INFO, IconSize.SM))
+        g_title = QLabel("综合得分趋势")
         g_title.setStyleSheet(
             f"font-size: 13px; font-weight: 700; color: {T.INFO}; "
             f"background: transparent; font-family: {T.FONT};"
         )
+        g_title_h.addWidget(g_title_icon)
+        g_title_h.addWidget(g_title)
+        g_title_h.addStretch()
         self.growth_chart = GrowthChart()
-        g_lay.addWidget(g_title)
+        g_lay.addLayout(g_title_h)
         g_lay.addWidget(self.growth_chart)
 
         # 雷达图卡片
         radar_card = ChartCard()
         r_lay = QVBoxLayout(radar_card)
         r_lay.setContentsMargins(16, 14, 16, 14)
-        r_title = QLabel("🎯  最近能力维度")
+        r_title_h = QHBoxLayout()
+        r_title_h.setSpacing(6)
+        r_title_icon = QLabel()
+        r_title_icon.setPixmap(Icons.colored_pixmap("radar", T.TEXT_DIM, IconSize.SM))
+        r_title = QLabel("最近能力维度")
         r_title.setStyleSheet(
             f"font-size: 13px; font-weight: 700; color: {T.TEXT_DIM}; "
             f"background: transparent; font-family: {T.FONT};"
         )
+        r_title_h.addWidget(r_title_icon)
+        r_title_h.addWidget(r_title)
+        r_title_h.addStretch()
         self.radar_chart = RadarChart()
-        r_lay.addWidget(r_title)
+        r_lay.addLayout(r_title_h)
         r_lay.addWidget(self.radar_chart)
 
         charts.addWidget(growth_card, stretch=6)
@@ -118,11 +153,18 @@ class HistoryPanel(QWidget):
         lay.setContentsMargins(18, 14, 18, 14)
         lay.setSpacing(8)
 
-        title = QLabel("📝  最近面试表现回顾")
+        title_h = QHBoxLayout()
+        title_h.setSpacing(6)
+        title_icon = QLabel()
+        title_icon.setPixmap(Icons.colored_pixmap("article", T.WARNING, IconSize.SM))
+        title = QLabel("最近面试表现回顾")
         title.setStyleSheet(
             f"font-size: 13px; font-weight: 700; color: {T.WARNING}; "
             f"background: transparent; font-family: {T.FONT};"
         )
+        title_h.addWidget(title_icon)
+        title_h.addWidget(title)
+        title_h.addStretch()
 
         self.report_view = QTextEdit()
         self.report_view.setReadOnly(True)
@@ -139,7 +181,7 @@ class HistoryPanel(QWidget):
             }}
         """)
 
-        lay.addWidget(title)
+        lay.addLayout(title_h)
         lay.addWidget(self.report_view)
         return card
 
@@ -186,7 +228,12 @@ class HistoryPanel(QWidget):
         )
         if turns:
             dim_totals = {"技术": [], "逻辑": [], "深度": [], "表达": []}
-            key_map = {"tech": "技术", "logic": "逻辑", "depth": "深度", "clarity": "表达"}
+            key_map = {
+                "tech": "技术",
+                "logic": "逻辑",
+                "depth": "深度",
+                "clarity": "表达",
+            }
             for (sc_json,) in turns:
                 sc = json.loads(sc_json)
                 for k, cn in key_map.items():

@@ -13,13 +13,14 @@ from PySide6.QtCore import QSize, Qt
 
 # ── 图标根目录 ──────────────────────────────────────────────────────
 _ROOT = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..","..", "icon")
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "icon")
 )
 
 
 @dataclass(frozen=True)
 class IconSize:
     """预定义图标尺寸，全局统一"""
+
     XS = QSize(16, 16)
     SM = QSize(20, 20)
     MD = QSize(24, 24)  # 默认
@@ -49,7 +50,7 @@ class Icons:
         "stop": "stop",
         "stop_circle": "stop_circle",
         "record_voice": "record_voice_over",
-
+        "play_arrow": "play_arrow",
         # ── 通用操作 ────────────────────────────────────
         "send": "send",
         "cancel": "cancel",
@@ -61,50 +62,57 @@ class Icons:
         "visibility": "visibility",
         "visibility_off": "visibility_off",
         "upload": "upload_file",
+        "upload_file": "upload_file",
         "download": "arrow_downward",
+        "arrow_downward": "arrow_downward",
         "sort": "sort",
         "filter": "tune",
-
         # ── 导航 ───────────────────────────────────────
         "chevron_left": "chevron_left",
         "chevron_right": "chevron_right",
         "first_page": "first_page",
         "last_page": "last_page",
-
+        "find_replace": "find_replace",
         # ── 数据 / 统计 ────────────────────────────────
         "analytics": "analytics",
         "bar_chart": "bar_chart",
         "trending_up": "trending_up",
-
+        "inventory": "inventory_2",
+        "inventory_2": "inventory_2",
+        "looks_3": "looks_3",
+        "looks_one": "looks_one",
+        "looks_two": "looks_two",
         # ── 状态 ───────────────────────────────────────
         "loading": "hourglass_top",
+        "hourglass_top": "hourglass_top",
         "success": "task_alt",
+        "task_alt": "task_alt",
         "error": "cancel",
         "history": "history",
         "sync": "sync",
-
         # ── 面板 ───────────────────────────────────────
         "dashboard": "dashboard",
         "article": "article",
         "category": "category",
         "group": "group",
         "library": "library",
+        "library_books": "library",
         "list": "list_alt",
-        "looks_3": "looks_3",
-        "looks_one": "looks_one",
-        "looks_two": "looks_two",
         "radar": "radar",
         "query_stats": "query_stats",
         "travel": "travel_explore",
+        "travel_explore": "travel_explore",
         "work": "work",
         "cleaning": "cleaning_services",
-        "inventory": "inventory_2",
+        "cleaning_services": "cleaning_services",
         "smart_toy": "smart_toy",
         "menu_book": "menu_book",
         "person": "person",
         "subtitles": "subtitles",
         "shuffle": "shuffle",
-        "find_replace": "find_replace",
+        # ── AI 助手 ────────────────────────────────────
+        "smart_toy": "smart_toy",
+        "assessment": "bar_chart",
     }
 
     # ══════════════════════════════════════════════════════════════════
@@ -114,9 +122,9 @@ class Icons:
 
     @classmethod
     def get(
-            cls,
-            name: str,
-            size: QSize = IconSize.MD,
+        cls,
+        name: str,
+        size: QSize = IconSize.MD,
     ) -> QIcon:
         """
         获取图标。优先从注册表查文件名，找不到则直接用 name 作为文件名。
@@ -135,7 +143,6 @@ class Icons:
         # 查注册表 → 兜底直接用 name
         filename = cls._REGISTRY.get(name, name)
         filepath = os.path.join(_ROOT, f"{filename}.png")
-        print(name," path is ",filepath)
         icon = QIcon()
         if os.path.isfile(filepath):
             pixmap = QPixmap(filepath).scaled(
@@ -150,9 +157,9 @@ class Icons:
 
     @classmethod
     def pixmap(
-            cls,
-            name: str,
-            size: QSize = IconSize.MD,
+        cls,
+        name: str,
+        size: QSize = IconSize.MD,
     ) -> QPixmap:
         """直接拿 QPixmap（某些场景比 QIcon 更方便）"""
         icon = cls.get(name, size)
@@ -160,10 +167,10 @@ class Icons:
 
     @classmethod
     def colored_pixmap(
-            cls,
-            name: str,
-            color: str,
-            size: QSize = IconSize.MD,
+        cls,
+        name: str,
+        color: str,
+        size: QSize = IconSize.MD,
     ) -> QPixmap:
         """获取着色后的 QPixmap"""
         from PySide6.QtGui import QColor, QPainter
@@ -188,6 +195,7 @@ class Icons:
 
         painter.end()
         return result
+
     @classmethod
     def clear_cache(cls) -> None:
         """主题切换或热重载时调用"""

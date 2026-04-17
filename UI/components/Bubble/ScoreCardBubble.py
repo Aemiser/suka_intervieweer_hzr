@@ -10,16 +10,24 @@
 """
 
 from PySide6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel,
+    QFrame,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
     QGraphicsDropShadowEffect,
 )
 from PySide6.QtCore import (
-    Qt, QTimer, QPropertyAnimation,
-    QRect, QEasingCurve, QParallelAnimationGroup
+    Qt,
+    QTimer,
+    QPropertyAnimation,
+    QRect,
+    QEasingCurve,
+    QParallelAnimationGroup,
 )
 from PySide6.QtGui import QColor
 
 from UI.components.info.Theme import T
+from UI.components.info.icon import Icons, IconSize
 
 
 class ScoreCardBubble(QFrame):
@@ -59,12 +67,19 @@ class ScoreCardBubble(QFrame):
         card_lay.setSpacing(10)
 
         # ── 标题 ──────────────────────────────────────────────────────────────
-        title = QLabel("📊  本题评估报告")
+        title_h = QHBoxLayout()
+        title_h.setSpacing(6)
+        title_icon = QLabel()
+        title_icon.setPixmap(Icons.colored_pixmap("bar_chart", T.NEON, IconSize.SM))
+        title = QLabel("本题评估报告")
         title.setStyleSheet(
             f"font-weight: 700; font-size: 13px; color: {T.NEON};"
             f"font-family: {T.FONT}; background: transparent;"
         )
-        card_lay.addWidget(title)
+        title_h.addWidget(title_icon)
+        title_h.addWidget(title)
+        title_h.addStretch()
+        card_lay.addLayout(title_h)
 
         # ── 得分行 ────────────────────────────────────────────────────────────
         scores_row = QHBoxLayout()
@@ -112,9 +127,7 @@ class ScoreCardBubble(QFrame):
 
         # 综合得分
         overall_frame = QFrame()
-        overall_frame.setStyleSheet(
-            f"background: {T.GREEN}11; border-radius: 8px;"
-        )
+        overall_frame.setStyleSheet(f"background: {T.GREEN}11; border-radius: 8px;")
         overall_lay = QVBoxLayout(overall_frame)
         overall_lay.setContentsMargins(14, 8, 14, 8)
         overall_lay.setAlignment(Qt.AlignCenter)
@@ -166,7 +179,6 @@ class ScoreCardBubble(QFrame):
     # ══════════════════════════════════════════════════════════════════════════
 
     def play_entrance_animation(self):
-        print("anime_play_in_scoreCard")
         """
         播放入场动画：上滑 + 淡入
         动画结束后自动触发分数递增和建议淡入
@@ -184,7 +196,7 @@ class ScoreCardBubble(QFrame):
             target_geo.x(),
             target_geo.y() + 30,  # 起始位置下移 30px
             target_geo.width(),
-            target_geo.height()
+            target_geo.height(),
         )
 
         # 初始状态
@@ -224,25 +236,31 @@ class ScoreCardBubble(QFrame):
                 0.0,
                 float(self._eval_result.overall_score),
                 duration=800,
-                fmt="{:.1f}"
+                fmt="{:.1f}",
             )
 
         # 各维度分数延迟错落启动
         for i, (label, target) in enumerate(self._score_labels):
             QTimer.singleShot(
                 150 + i * 100,  # 错落延迟：150ms + 每项间隔 100ms
-                lambda l=label, t=target: self._animate_number(l, 0, t, duration=600)
+                lambda l=label, t=target: self._animate_number(l, 0, t, duration=600),
             )
 
         # 建议文本延迟淡入
         if self._suggestion_label:
             QTimer.singleShot(
                 400,  # 等待分数动画开始后淡入
-                self._fade_in_suggestion
+                self._fade_in_suggestion,
             )
 
-    def _animate_number(self, label: QLabel, start: float, end: float,
-                        duration: int = 600, fmt: str = "{:.0f}"):
+    def _animate_number(
+        self,
+        label: QLabel,
+        start: float,
+        end: float,
+        duration: int = 600,
+        fmt: str = "{:.0f}",
+    ):
         """
         数字递增动画
         :param label: 目标 QLabel

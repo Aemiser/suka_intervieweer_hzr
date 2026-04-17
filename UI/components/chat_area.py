@@ -8,13 +8,16 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QFrame, QPushButton
 
 from UI.components import T, ChatBubble, ScoreCardBubble, TypingIndicator
+from UI.components.info.icon import Icons, IconSize
 
 
 class NewMessageToast(QPushButton):
     def __init__(self, parent=None):
-        super().__init__("↓  新消息", parent)
+        super().__init__("新消息", parent)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(110, 34)
+        self.setFixedSize(100, 34)
+        self.setIcon(Icons.get("arrow_downward", IconSize.SM))
+        self.setIconSize(IconSize.SM)
         self.setStyleSheet(f"""
             QPushButton {{
                 background: {T.NEON}; color: #0a0a0f;
@@ -91,7 +94,9 @@ class ChatArea(QScrollArea):
     def scroll_to_bottom(self) -> None:
         QTimer.singleShot(
             50,
-            lambda: self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
+            lambda: self.verticalScrollBar().setValue(
+                self.verticalScrollBar().maximum()
+            ),
         )
         self._user_scrolled_up = False
         self._has_new_content = False

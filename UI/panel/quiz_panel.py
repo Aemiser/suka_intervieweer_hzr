@@ -6,43 +6,66 @@
 import math
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QScrollArea, QFrame, QLineEdit,
-    QGraphicsDropShadowEffect, QSizePolicy,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QScrollArea,
+    QFrame,
+    QLineEdit,
+    QGraphicsDropShadowEffect,
+    QSizePolicy,
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 
 from UI.components import (
-    T, StatBadge, ButtonFactory,
-    GLOBAL_QSS, combo_qss, input_qss,
+    T,
+    StatBadge,
+    ButtonFactory,
+    GLOBAL_QSS,
+    combo_qss,
+    input_qss,
 )
+from UI.components.info.icon import Icons, IconSize
+from PySide6.QtWidgets import QPushButton
 
 # ── 分类色彩映射（适配新拟物浅色主题）─────────────────────────────────────────
 CLASSIFY_COLORS: dict[str, str] = {
-    "Java基础":       T.YELLOW,
-    "JVM":            T.INFO,
-    "Spring":         T.WARNING,
-    "MySQL":          T.SUCCESS,
-    "Redis":          T.SUCCESS,
-    "JavaScript":     T.WARNING,
-    "Vue/React":      T.INFO,
-    "计算机网络":     T.YELLOW,
+    "Java基础": T.YELLOW,
+    "JVM": T.INFO,
+    "Spring": T.WARNING,
+    "MySQL": T.SUCCESS,
+    "Redis": T.SUCCESS,
+    "JavaScript": T.WARNING,
+    "Vue/React": T.INFO,
+    "计算机网络": T.YELLOW,
     "数据结构与算法": T.INFO,
 }
 
 LEVEL_COLORS: dict[str, tuple[str, str]] = {
-    "初级": (T.SUCCESS,   f"{T.SUCCESS}20"),
-    "中级": (T.WARNING,   f"{T.WARNING}20"),
-    "高级": (T.YELLOW,    f"{T.YELLOW}20"),
+    "初级": (T.SUCCESS, f"{T.SUCCESS}20"),
+    "中级": (T.WARNING, f"{T.WARNING}20"),
+    "高级": (T.YELLOW, f"{T.YELLOW}20"),
 }
 
 _ORDER_OPTIONS = [
-    ("分类 A→Z",   "classify ASC,  CASE level WHEN '初级' THEN 1 WHEN '中级' THEN 2 WHEN '高级' THEN 3 END ASC"),
-    ("难度 易→难", "CASE level WHEN '初级' THEN 1 WHEN '中级' THEN 2 WHEN '高级' THEN 3 END ASC,  classify ASC"),
-    ("难度 难→易", "CASE level WHEN '初级' THEN 1 WHEN '中级' THEN 2 WHEN '高级' THEN 3 END DESC, classify ASC"),
-    ("题号 升序",  "id ASC"),
-    ("题号 降序",  "id DESC"),
+    (
+        "分类 A→Z",
+        "classify ASC,  CASE level WHEN '初级' THEN 1 WHEN '中级' THEN 2 WHEN '高级' THEN 3 END ASC",
+    ),
+    (
+        "难度 易→难",
+        "CASE level WHEN '初级' THEN 1 WHEN '中级' THEN 2 WHEN '高级' THEN 3 END ASC,  classify ASC",
+    ),
+    (
+        "难度 难→易",
+        "CASE level WHEN '初级' THEN 1 WHEN '中级' THEN 2 WHEN '高级' THEN 3 END DESC, classify ASC",
+    ),
+    ("题号 升序", "id ASC"),
+    ("题号 降序", "id DESC"),
 ]
 
 DEFAULT_PAGE_SIZE = 10
@@ -56,14 +79,14 @@ DEFAULT_PAGE_SIZE = 10
 # T.DISABLED_TEXT→T.TEXT_MUTE   禁用文字用最浅文字色
 # T.RADIUS_SM   → 6  (px)
 # T.RADIUS_LG   → 16 (px)
-_BASE          = T.BG
-_HOVER_TINT    = T.SURFACE2
-_PRESSED_TINT  = T.SURFACE3
-_SHADOW_DARK   = T.SURFACE_DARK
-_BORDER_FOCUS  = T.BORDER2
+_BASE = T.BG
+_HOVER_TINT = T.SURFACE2
+_PRESSED_TINT = T.SURFACE3
+_SHADOW_DARK = T.SURFACE_DARK
+_BORDER_FOCUS = T.BORDER2
 _DISABLED_TEXT = T.TEXT_MUTE
-_RADIUS_SM     = 6
-_RADIUS_LG     = 16
+_RADIUS_SM = 6
+_RADIUS_LG = 16
 
 
 def _cls_color(cls: str) -> str:
@@ -71,6 +94,7 @@ def _cls_color(cls: str) -> str:
 
 
 # ── 题目卡片 ──────────────────────────────────────────────────────────────────
+
 
 class QuestionCard(QFrame):
     def __init__(
@@ -87,8 +111,8 @@ class QuestionCard(QFrame):
         self._answer_visible = False
         self.setObjectName("QCard")
 
-        cls_color       = _cls_color(classify)
-        lvl_fg, lvl_bg  = LEVEL_COLORS.get(level, (T.TEXT_DIM, T.SURFACE))
+        cls_color = _cls_color(classify)
+        lvl_fg, lvl_bg = LEVEL_COLORS.get(level, (T.TEXT_DIM, T.SURFACE))
 
         self.setStyleSheet(f"""
                     QFrame#QCard {{
@@ -182,20 +206,44 @@ class QuestionCard(QFrame):
 
         # 操作按钮
         btn_row = QHBoxLayout()
-        self.toggle_btn = ButtonFactory.primary("查看答案", height=28)
-        self.toggle_btn.setFixedWidth(100)
+        self.toggle_btn = QPushButton("查看答案")
+        self.toggle_btn.setFixedHeight(28)
+        self.toggle_btn.setFixedWidth(110)
+        self.toggle_btn.setCursor(Qt.PointingHandCursor)
+        self.toggle_btn.setIcon(Icons.get("visibility", IconSize.SM))
+        self._update_toggle_btn_style()
         self.toggle_btn.clicked.connect(self._toggle_answer)
         btn_row.addWidget(self.toggle_btn)
         btn_row.addStretch()
         lay.addLayout(btn_row)
 
+    def _update_toggle_btn_style(self) -> None:
+        color = T.INFO
+        self.toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {color}22; color: {color};
+                border: 1px solid {color}66;
+                border-radius: 14px;
+                font-size: 12px; font-weight: 600;
+                padding: 0 12px 0 8px; font-family: {T.FONT};
+            }}
+            QPushButton:hover  {{ background: {color}44; border-color: {color}; }}
+            QPushButton:pressed {{ background: {color}66; }}
+        """)
+
     def _toggle_answer(self) -> None:
         self._answer_visible = not self._answer_visible
         self.answer_frame.setVisible(self._answer_visible)
-        self.toggle_btn.setText("收起答案" if self._answer_visible else "查看答案")
+        if self._answer_visible:
+            self.toggle_btn.setText("收起答案")
+            self.toggle_btn.setIcon(Icons.get("visibility_off", IconSize.SM))
+        else:
+            self.toggle_btn.setText("查看答案")
+            self.toggle_btn.setIcon(Icons.get("visibility", IconSize.SM))
 
 
 # ── 分页导航条 ────────────────────────────────────────────────────────────────
+
 
 class PaginationBar(QFrame):
     def __init__(self, parent=None):
@@ -209,15 +257,15 @@ class PaginationBar(QFrame):
         """)
 
         self._current_page = 1
-        self._total_pages  = 1
+        self._total_pages = 1
         self._page_changed_cb = None
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(20, 0, 20, 0)
         lay.setSpacing(6)
 
-        self._first_btn = self._mk_nav_btn("⏮", "第一页")
-        self._prev_btn  = self._mk_nav_btn("◀",  "上一页")
+        self._first_btn = self._mk_nav_btn("first_page", "第一页")
+        self._prev_btn = self._mk_nav_btn("chevron_left", "上一页")
 
         self._page_info = QLabel("1 / 1")
         self._page_info.setFixedWidth(80)
@@ -226,11 +274,13 @@ class PaginationBar(QFrame):
             f"color: {T.TEXT}; font-size: 13px; font-family: {T.FONT_MONO}; background: transparent;"
         )
 
-        self._next_btn = self._mk_nav_btn("▶",  "下一页")
-        self._last_btn = self._mk_nav_btn("⏭", "最后一页")
+        self._next_btn = self._mk_nav_btn("chevron_right", "下一页")
+        self._last_btn = self._mk_nav_btn("last_page", "最后一页")
 
         jump_lbl = QLabel("跳转")
-        jump_lbl.setStyleSheet(f"color: {T.TEXT_DIM}; font-size: 12px; background: transparent;")
+        jump_lbl.setStyleSheet(
+            f"color: {T.TEXT_DIM}; font-size: 12px; background: transparent;"
+        )
         self._jump_box = QLineEdit()
         self._jump_box.setFixedSize(46, 28)
         self._jump_box.setAlignment(Qt.AlignCenter)
@@ -247,7 +297,9 @@ class PaginationBar(QFrame):
         self._jump_box.returnPressed.connect(self._on_jump)
 
         size_lbl = QLabel("每页")
-        size_lbl.setStyleSheet(f"color: {T.TEXT_DIM}; font-size: 12px; background: transparent;")
+        size_lbl.setStyleSheet(
+            f"color: {T.TEXT_DIM}; font-size: 12px; background: transparent;"
+        )
         self._size_combo = QComboBox()
         self._size_combo.setFixedSize(62, 28)
         for s in [5, 10, 20, 50]:
@@ -297,11 +349,12 @@ class PaginationBar(QFrame):
         self._next_btn.clicked.connect(lambda: self._go(self._current_page + 1))
         self._last_btn.clicked.connect(lambda: self._go(self._total_pages))
 
-    def _mk_nav_btn(self, text: str, tip: str) -> QPushButton:
-        btn = QPushButton(text)
+    def _mk_nav_btn(self, icon_name: str, tip: str) -> QPushButton:
+        btn = QPushButton()
         btn.setFixedSize(32, 28)
         btn.setToolTip(tip)
         btn.setCursor(Qt.PointingHandCursor)
+        btn.setIcon(Icons.get(icon_name, IconSize.SM))
         btn.setStyleSheet(f"""
                     QPushButton {{
                         background: {T.SURFACE}; color: {T.TEXT_DIM};
@@ -328,7 +381,7 @@ class PaginationBar(QFrame):
 
     def update(self, current: int, total: int, total_records: int) -> None:
         self._current_page = current
-        self._total_pages  = max(total, 1)
+        self._total_pages = max(total, 1)
         self._page_info.setText(f"{current} / {self._total_pages}")
         self._total_lbl.setText(f"共 {total_records} 题")
         self._first_btn.setEnabled(current > 1)
@@ -353,12 +406,13 @@ class PaginationBar(QFrame):
 
 # ── 主面板 ────────────────────────────────────────────────────────────────────
 
+
 class QuizPanel(QWidget):
     def __init__(self, db, parent=None):
         super().__init__(parent)
         self.db = db
-        self._current_page   = 1
-        self._total_records  = 0
+        self._current_page = 1
+        self._total_records = 0
 
         self._build_ui()
         self._load_stats()
@@ -483,9 +537,13 @@ class QuizPanel(QWidget):
         lay.addWidget(self.sort_combo)
         lay.addStretch()
 
-        all_btn = ButtonFactory.primary("全部题目", height=34)
-        ref_btn = ButtonFactory.ghost("🔄 刷新", height=34)
-        ref_btn.setFixedSize(60, 34)
+        all_btn = ButtonFactory.primary(
+            "全部题目", height=34, icon_name="list", icon_size=IconSize.SM
+        )
+        ref_btn = ButtonFactory.ghost(
+            "刷新", height=34, icon_name="refresh", icon_size=IconSize.SM
+        )
+        ref_btn.setFixedSize(80, 34)
         all_btn.clicked.connect(self._show_all)
         ref_btn.clicked.connect(self.refresh)
 
@@ -497,7 +555,9 @@ class QuizPanel(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
-        self._scroll.setStyleSheet(f"QScrollArea {{ background: {_BASE}; border: none; }}")
+        self._scroll.setStyleSheet(
+            f"QScrollArea {{ background: {_BASE}; border: none; }}"
+        )
 
         self._content_widget = QWidget()
         self._content_widget.setStyleSheet(f"background: {_BASE};")
@@ -530,8 +590,8 @@ class QuizPanel(QWidget):
 
     def _build_where(self) -> tuple[str, list]:
         keyword = self.search_box.text().strip()
-        cls     = self.cls_combo.currentData()
-        lvl     = self.lvl_combo.currentData()
+        cls = self.cls_combo.currentData()
+        lvl = self.lvl_combo.currentData()
 
         conds, params = [], []
         if keyword:
@@ -549,11 +609,15 @@ class QuizPanel(QWidget):
 
     def _current_order_sql(self) -> str:
         idx = self.sort_combo.currentIndex()
-        return _ORDER_OPTIONS[idx][1] if 0 <= idx < len(_ORDER_OPTIONS) else _ORDER_OPTIONS[0][1]
+        return (
+            _ORDER_OPTIONS[idx][1]
+            if 0 <= idx < len(_ORDER_OPTIONS)
+            else _ORDER_OPTIONS[0][1]
+        )
 
     def _query_and_render(self) -> None:
         page_size = self._pagination.get_page_size()
-        offset    = (self._current_page - 1) * page_size
+        offset = (self._current_page - 1) * page_size
         where, params = self._build_where()
         order = self._current_order_sql()
 
@@ -599,8 +663,8 @@ class QuizPanel(QWidget):
 
     def _update_status(self, shown: int, total_pages: int) -> None:
         page_size = self._pagination.get_page_size()
-        offset    = (self._current_page - 1) * page_size
-        end       = min(offset + shown, self._total_records)
+        offset = (self._current_page - 1) * page_size
+        end = min(offset + shown, self._total_records)
         if self._total_records == 0:
             self._status_bar.setText("无符合条件的题目")
         else:
@@ -615,18 +679,30 @@ class QuizPanel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        total     = self.db.fetchone("SELECT COUNT(*) FROM question_bank")[0] or 0
-        easy      = self.db.fetchone("SELECT COUNT(*) FROM question_bank WHERE level='初级'")[0] or 0
-        mid       = self.db.fetchone("SELECT COUNT(*) FROM question_bank WHERE level='中级'")[0] or 0
-        hard      = self.db.fetchone("SELECT COUNT(*) FROM question_bank WHERE level='高级'")[0] or 0
-        cls_count = self.db.fetchone("SELECT COUNT(DISTINCT classify) FROM question_bank")[0] or 0
+        total = self.db.fetchone("SELECT COUNT(*) FROM question_bank")[0] or 0
+        easy = (
+            self.db.fetchone("SELECT COUNT(*) FROM question_bank WHERE level='初级'")[0]
+            or 0
+        )
+        mid = (
+            self.db.fetchone("SELECT COUNT(*) FROM question_bank WHERE level='中级'")[0]
+            or 0
+        )
+        hard = (
+            self.db.fetchone("SELECT COUNT(*) FROM question_bank WHERE level='高级'")[0]
+            or 0
+        )
+        cls_count = (
+            self.db.fetchone("SELECT COUNT(DISTINCT classify) FROM question_bank")[0]
+            or 0
+        )
 
         for icon, val, lbl, color in [
-            ("📚", str(total),     "总题数", T.INFO),
-            ("🟢", str(easy),      "初级",   T.SUCCESS),
-            ("🟡", str(mid),       "中级",   T.WARNING),
-            ("🔴", str(hard),      "高级",   T.YELLOW),
-            ("🗂", str(cls_count), "分类",   T.YELLOW),
+            ("inventory", str(total), "总题数", T.INFO),
+            ("looks_one", str(easy), "初级", T.SUCCESS),
+            ("looks_two", str(mid), "中级", T.WARNING),
+            ("looks_3", str(hard), "高级", T.YELLOW),
+            ("category", str(cls_count), "分类", T.YELLOW),
         ]:
             self._stats_container.addWidget(StatBadge(icon, val, lbl, color))
 

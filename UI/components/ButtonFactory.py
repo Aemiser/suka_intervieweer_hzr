@@ -5,14 +5,21 @@
 """
 
 from PySide6.QtWidgets import QPushButton
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QIcon
 
 from UI.components.info.Theme import T
 
 
 class ButtonFactory:
     @staticmethod
-    def primary(text: str, color: str = T.NEON, height: int = 38) -> QPushButton:
+    def primary(
+        text: str,
+        color: str = T.NEON,
+        height: int = 38,
+        icon_name: str = None,
+        icon_size: QSize = None,
+    ) -> QPushButton:
         """镂空描边按钮，hover 时加深背景。"""
         btn = QPushButton(text)
         btn.setFixedHeight(height)
@@ -33,15 +40,27 @@ class ButtonFactory:
                 cursor: NotAllowedCursor;
             }}
         """)
+        if icon_name:
+            from UI.components.info.icon import Icons, IconSize as IS
+
+            size = icon_size or IS.SM
+            btn.setIcon(Icons.get(icon_name, size))
+            btn.setIconSize(size)
         return btn
 
-    @staticmethod  # 🔑 修复：删除重复的 @staticmethod
-    def solid(text: str, color: str = T.NEON, height: int = 38, width: int | None = None) -> QPushButton:
+    @staticmethod
+    def solid(
+        text: str,
+        color: str = T.NEON,
+        height: int = 38,
+        width: int | None = None,
+        icon_name: str = None,
+        icon_size: QSize = None,
+    ) -> QPushButton:
         """实心填充按钮（主操作）。"""
         btn = QPushButton(text)
-        # 🔑 显式声明启用状态 + 类型保护
         btn.setEnabled(True)
-        btn.setAttribute(Qt.WA_LayoutUsesWidgetRect)  # 确保 PySide6 布局兼容
+        btn.setAttribute(Qt.WA_LayoutUsesWidgetRect)
 
         btn.setFixedHeight(height)
         if width:
@@ -63,10 +82,18 @@ class ButtonFactory:
                     cursor: NotAllowedCursor;
                 }}
             """)
+        if icon_name:
+            from UI.components.info.icon import Icons, IconSize as IS
+
+            size = icon_size or IS.SM
+            btn.setIcon(Icons.get(icon_name, size))
+            btn.setIconSize(size)
         return btn
 
     @staticmethod
-    def ghost(text: str, height: int = 30) -> QPushButton:
+    def ghost(
+        text: str, height: int = 30, icon_name: str = None, icon_size: QSize = None
+    ) -> QPushButton:
         """透明底色幽灵按钮，常用于次要操作。"""
         btn = QPushButton(text)
         btn.setFixedHeight(height)
@@ -86,10 +113,22 @@ class ButtonFactory:
                 cursor: NotAllowedCursor;
             }}
         """)
+        if icon_name:
+            from UI.components.info.icon import Icons, IconSize as IS
+
+            size = icon_size or IS.SM
+            btn.setIcon(Icons.get(icon_name, size))
+            btn.setIconSize(size)
         return btn
 
     @staticmethod
-    def tag(text: str, color: str, height: int = 32) -> QPushButton:
+    def tag(
+        text: str,
+        color: str,
+        height: int = 32,
+        icon_name: str = None,
+        icon_size: QSize = None,
+    ) -> QPushButton:
         """标签式快捷按钮，hover 时着色。"""
         btn = QPushButton(text)
         btn.setFixedHeight(height)
@@ -113,4 +152,10 @@ class ButtonFactory:
                 cursor: NotAllowedCursor;
             }}
         """)
+        if icon_name:
+            from UI.components.info.icon import Icons, IconSize as IS
+
+            size = icon_size or IS.SM
+            btn.setIcon(Icons.get(icon_name, size))
+            btn.setIconSize(size)
         return btn

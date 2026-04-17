@@ -10,26 +10,30 @@ AI 知识助手面板（ChatArea 解耦重构版）。
 import threading
 
 from PySide6.QtWidgets import (
-    QPushButton, QVBoxLayout, QHBoxLayout,
-    QLabel, QFrame,QWidget
+    QPushButton,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QFrame,
+    QWidget,
 )
 from PySide6.QtCore import Qt, QTimer
 
-from UI.components import (
-    T, StreamSignals, ButtonFactory, GLOBAL_QSS, input_qss
-)
+from UI.components import T, StreamSignals, ButtonFactory, GLOBAL_QSS, input_qss
 from UI.components.footer import Footer
 from UI.components.chat_area import ChatArea
+from UI.components.info.icon import Icons, IconSize
 
 # ── 快捷提示 ──────────────────────────────────────────────────────────────────
 HINTS = [
-    ("🎲", "随机抽题", "从题库随机抽5道题", T.NEON),
-    ("🔍", "搜索题目", "搜索 Redis 相关题目", T.PURPLE),
-    ("📊", "题库统计", "查看题库分类统计", T.YELLOW),
-    ("🌐", "联网搜索", "搜索 Spring Boot 3.0 新特性", T.GREEN),
-    ("📚", "知识检索", "什么是 MVCC？", T.NEON),
-    ("🏆", "历史记录", "查看学生ID=1的面试记录", T.ACCENT),
+    ("shuffle", "随机抽题", "从题库随机抽5道题", T.NEON),
+    ("search", "搜索题目", "搜索 Redis 相关题目", T.PURPLE),
+    ("bar_chart", "题库统计", "查看题库分类统计", T.YELLOW),
+    ("travel", "联网搜索", "搜索 Spring Boot 3.0 新特性", T.GREEN),
+    ("library", "知识检索", "什么是 MVCC？", T.NEON),
+    ("history", "历史记录", "查看学生ID=1的面试记录", T.ACCENT),
 ]
+
 
 class HelperPanel(QWidget):
     def __init__(self, agent, parent=None):
@@ -92,12 +96,22 @@ class HelperPanel(QWidget):
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setFixedHeight(56)
-        header.setStyleSheet(f"QFrame {{ background: {T.SURFACE}; border-bottom: 1px solid {T.BORDER}; }}")
+        header.setStyleSheet(
+            f"QFrame {{ background: {T.SURFACE}; border-bottom: 1px solid {T.BORDER}; }}"
+        )
         lay = QHBoxLayout(header)
         lay.setContentsMargins(22, 0, 22, 0)
 
-        title = QLabel("🤖  AI 知识助手")
-        title.setStyleSheet(f"font-size: 16px; font-weight: 800; color: {T.TEXT}; font-family: {T.FONT};")
+        title_icon = QLabel()
+        title_icon.setPixmap(Icons.colored_pixmap("smart_toy", T.NEON, IconSize.MD))
+        title = QLabel("AI 知识助手")
+        title.setStyleSheet(
+            f"font-size: 16px; font-weight: 800; color: {T.TEXT}; font-family: {T.FONT};"
+        )
+        title_h = QHBoxLayout()
+        title_h.setSpacing(8)
+        title_h.addWidget(title_icon)
+        title_h.addWidget(title)
 
         self._tool_status = QLabel()
         self._refresh_tool_status()
@@ -107,10 +121,12 @@ class HelperPanel(QWidget):
             border-radius: 10px; padding: 2px 10px;
         """)
 
-        clear_btn = ButtonFactory.ghost("清空对话")
+        clear_btn = ButtonFactory.ghost(
+            "清空对话", icon_name="cleaning", icon_size=IconSize.SM
+        )
         clear_btn.clicked.connect(self._clear)
 
-        lay.addWidget(title)
+        lay.addLayout(title_h)
         lay.addStretch()
         lay.addWidget(self._tool_status)
         lay.addSpacing(12)
@@ -120,13 +136,17 @@ class HelperPanel(QWidget):
     def _build_hints(self) -> QFrame:
         frame = QFrame()
         frame.setFixedHeight(52)
-        frame.setStyleSheet(f"QFrame {{ background: {T.SURFACE2}; border-bottom: 1px solid {T.BORDER}; }}")
+        frame.setStyleSheet(
+            f"QFrame {{ background: {T.SURFACE2}; border-bottom: 1px solid {T.BORDER}; }}"
+        )
         lay = QHBoxLayout(frame)
         lay.setContentsMargins(18, 10, 18, 10)
         lay.setSpacing(8)
 
-        for icon, label, tooltip, color in HINTS:
-            btn = ButtonFactory.tag(f"{icon} {label}", color)
+        for icon_name, label, tooltip, color in HINTS:
+            btn = ButtonFactory.tag(
+                label, color, icon_name=icon_name, icon_size=IconSize.SM
+            )
             btn.setToolTip(tooltip)
             btn.clicked.connect(lambda checked, t=tooltip: self._quick_send(t))
             lay.addWidget(btn)
@@ -137,7 +157,8 @@ class HelperPanel(QWidget):
     def _refresh_tool_status(self) -> None:
         count = (
             len(self.agent.get_registered_tools())
-            if hasattr(self.agent, "get_registered_tools") else 8
+            if hasattr(self.agent, "get_registered_tools")
+            else 8
         )
         self._tool_status.setText(f"● {count} 个工具就绪")
 
@@ -171,25 +192,27 @@ class HelperPanel(QWidget):
         threading.Thread(target=_run, daemon=True).start()
 
     def _on_chunk(self, chunk: str) -> None:
-        self.chat_area.hide_typing_indicator()          # ✅
-        self.chat_area.ensure_ai_bubble(enable_tts=True) # ✅ 内部接管气泡创建与 TTS 标记
-        self.chat_area.append_ai_chunk(chunk)            # ✅
+        self.chat_area.hide_typing_indicator()  # ✅
+        self.chat_area.ensure_ai_bubble(
+            enable_tts=True
+        )  # ✅ 内部接管气泡创建与 TTS 标记
+        self.chat_area.append_ai_chunk(chunk)  # ✅
 
     def _on_stream_done(self) -> None:
-        self.chat_area.stop_ai_stream()                  # ✅ 内部接管 TTS 停止与流状态清理
+        self.chat_area.stop_ai_stream()  # ✅ 内部接管 TTS 停止与流状态清理
         self._is_streaming = False
         self._set_input_enabled(True)
         self.footer.input_bar.text_edit.setFocus()
 
     def _on_stream_error(self, msg: str) -> None:
         self.chat_area.hide_typing_indicator()
-        self.chat_area.stop_ai_stream(force=True)        # ✅ 强制中断
+        self.chat_area.stop_ai_stream(force=True)  # ✅ 强制中断
         self.chat_area.add_system_message(f"❌ 出错了：{msg}")
         self._is_streaming = False
         self._set_input_enabled(True)
 
     def _clear(self) -> None:
-        self.chat_area.clear()                           # ✅ 替代原布局遍历删除
+        self.chat_area.clear()  # ✅ 替代原布局遍历删除
         self.agent.clear_conversation()
         # 可选：清空后重新显示欢迎语
         # self.chat_area.add_system_message("对话已清空，请重新开始提问...")

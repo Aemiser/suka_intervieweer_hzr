@@ -4,18 +4,23 @@
 """
 
 from PySide6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel,
+    QFrame,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
     QGraphicsDropShadowEffect,
 )
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPixmap
 
 from UI.components.info.Theme import T
+from UI.components.info.icon import Icons, IconSize
 
 
 class StatBadge(QFrame):
     def __init__(
         self,
-        icon:  str,
+        icon: str,
         value: str,
         label: str,
         color: str,
@@ -42,10 +47,12 @@ class StatBadge(QFrame):
         lay.setContentsMargins(12, 8, 12, 8)
         lay.setSpacing(2)
 
-        # 顶部行：emoji 图标 + 数值
+        # 顶部行：图标 + 数值
         top = QHBoxLayout()
-        icon_lbl = QLabel(icon)
-        icon_lbl.setStyleSheet("font-size: 18px; background: transparent;")
+        icon_lbl = QLabel()
+        pixmap = Icons.colored_pixmap(icon, color, IconSize.MD)
+        icon_lbl.setPixmap(pixmap)
+        icon_lbl.setAlignment(Qt.AlignVCenter)
         val_lbl = QLabel(value)
         val_lbl.setStyleSheet(
             f"font-size: 20px; font-weight: 900; color: {color};"

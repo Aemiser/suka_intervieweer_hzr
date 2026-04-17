@@ -5,9 +5,7 @@ smart_footer.py
 新增：卡片化视觉呈现（内嵌 Card 实现悬浮、圆角、阴影效果）
 """
 
-from PySide6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QSizePolicy, QPushButton
-)
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QSizePolicy, QPushButton
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QMouseEvent, QCursor, QColor
 
@@ -20,22 +18,22 @@ from UI.components import T
 
 class Footer(QFrame):
     # ── 信号透传 ────────────────────────────────────────────────────────
-    send_requested  = Signal(str)
-    text_changed    = Signal(str)
+    send_requested = Signal(str)
+    text_changed = Signal(str)
 
-    asr_finished    = Signal(str)
-    asr_error       = Signal(str)
-    play_requested  = Signal(str)
-    status_changed  = Signal(str)
+    asr_finished = Signal(str)
+    asr_error = Signal(str)
+    play_requested = Signal(str)
+    status_changed = Signal(str)
     recording_started = Signal()
     recording_stopped = Signal()
 
     def __init__(self, min_height: int = 160, max_height: int = 400, parent=None):
         super().__init__(parent)
-        self.min_height   = min_height
-        self.max_height   = max_height
-        self._dragging    = False
-        self._start_y     = 0
+        self.min_height = min_height
+        self.max_height = max_height
+        self._dragging = False
+        self._start_y = 0
         self._start_height = 0
 
         self.setFixedHeight(min_height)
@@ -61,6 +59,7 @@ class Footer(QFrame):
         # ── 阴影（参照 InterviewHeader） ──────────────────────────────
         from PySide6.QtWidgets import QGraphicsDropShadowEffect
         from PySide6.QtCore import Qt as _Qt
+
         shadow = QGraphicsDropShadowEffect(self.card)
         shadow.setBlurRadius(20)
         shadow.setColor(QColor(T.SURFACE2_DARK))
@@ -85,7 +84,7 @@ class Footer(QFrame):
         self.asr_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         bottom_lay.addWidget(self.asr_btn, stretch=8)
 
-        self.send_btn = ButtonFactory.solid("发送", T.GREEN,height=42)
+        self.send_btn = ButtonFactory.solid("发送", T.GREEN, height=42)
         self.send_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self.send_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         bottom_lay.addWidget(self.send_btn, stretch=2)
@@ -103,10 +102,7 @@ class Footer(QFrame):
 
     def _set_icon(self) -> None:
         """集中注册 Footer 内所有子组件的静态图标"""
-        # 发送按钮图标
-        print("setIconInFooter")
         self.send_btn.setIcon(Icons.get("send", IconSize.MD))
-
 
     def _bind_signals(self) -> None:
         # 文本变化透传
@@ -143,12 +139,12 @@ class Footer(QFrame):
     # ══════════════════════════════════════════════════════════════════════
     def _on_recording_started(self) -> None:
         self.input_bar.setEnabled(False)
-        self.send_btn.setEnabled(False)   # 录音时一并禁用发送按钮
+        self.send_btn.setEnabled(False)  # 录音时一并禁用发送按钮
         self.recording_started.emit()
 
     def _on_recording_stopped(self) -> None:
         self.input_bar.setEnabled(True)
-        self.send_btn.setEnabled(True)    # 恢复发送按钮
+        self.send_btn.setEnabled(True)  # 恢复发送按钮
         self.recording_stopped.emit()
 
     # ══════════════════════════════════════════════════════════════════════
@@ -156,8 +152,8 @@ class Footer(QFrame):
     # ══════════════════════════════════════════════════════════════════════
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.LeftButton and event.y() <= 14:
-            self._dragging     = True
-            self._start_y      = event.globalPosition().y()
+            self._dragging = True
+            self._start_y = event.globalPosition().y()
             self._start_height = self.height()
             self.setCursor(Qt.SizeVerCursor)
             event.accept()
@@ -167,7 +163,9 @@ class Footer(QFrame):
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._dragging:
             delta = event.globalPosition().y() - self._start_y
-            new_h = max(self.min_height, min(self._start_height - delta, self.max_height))
+            new_h = max(
+                self.min_height, min(self._start_height - delta, self.max_height)
+            )
             if new_h != self.height():
                 self.setFixedHeight(int(new_h))
             event.accept()

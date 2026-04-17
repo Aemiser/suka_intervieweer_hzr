@@ -20,23 +20,33 @@ import threading
 from typing import Callable
 
 from PySide6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel,
-    QTextBrowser, QSizePolicy,
+    QFrame,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QTextBrowser,
+    QSizePolicy,
 )
 from PySide6.QtCore import (
-    Qt, QTimer, QPropertyAnimation,
-    QRect, QEasingCurve, QParallelAnimationGroup
+    Qt,
+    QTimer,
+    QPropertyAnimation,
+    QRect,
+    QEasingCurve,
+    QParallelAnimationGroup,
 )
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QTextCursor, QPixmap
 
 from UI.components.info.Theme import T
 from UI.components.util.md_to_html import md_to_html
+from UI.components.info.icon import Icons, IconSize
 
 # ── Role 配置表 ───────────────────────────────────────────────────────────────
 
 _ROLE_CFG: dict[str, dict] = {
     "user": {
-        "label": "👤  你",
+        "label": "你",
+        "label_icon": "person",
         "label_color": T.YELLOW,
         "bg": T.USER_BUBBLE,
         "border": f"{T.NEON}33",
@@ -45,7 +55,8 @@ _ROLE_CFG: dict[str, dict] = {
         "tts": False,
     },
     "assistant": {
-        "label": "🤖  AI 助手",
+        "label": "AI 助手",
+        "label_icon": "smart_toy",
         "label_color": T.NEON,
         "bg": T.AI_BUBBLE,
         "border": T.BORDER2,
@@ -54,7 +65,8 @@ _ROLE_CFG: dict[str, dict] = {
         "tts": True,
     },
     "ai": {
-        "label": "🤖  AI 面试官",
+        "label": "AI 面试官",
+        "label_icon": "smart_toy",
         "label_color": T.NEON,
         "bg": T.AI_BUBBLE,
         "border": T.BORDER2,
@@ -64,6 +76,7 @@ _ROLE_CFG: dict[str, dict] = {
     },
     "system": {
         "label": "",
+        "label_icon": None,
         "label_color": T.TEXT_DIM,
         "bg": "transparent",
         "border": "transparent",
@@ -75,6 +88,7 @@ _ROLE_CFG: dict[str, dict] = {
 
 
 # ── ChatBubble ────────────────────────────────────────────────────────────────
+
 
 class ChatBubble(QFrame):
     """
@@ -88,15 +102,15 @@ class ChatBubble(QFrame):
     """
 
     def __init__(
-            self,
-            role: str,
-            content: str = "",
-            max_width: int = 580,
-            enable_tts: bool = False,
-            enable_typewriter: bool = False,
-            tts_model: str = "qwen3-tts-instruct-flash",
-            tts_voice: str = "Elias",
-            parent=None,
+        self,
+        role: str,
+        content: str = "",
+        max_width: int = 580,
+        enable_tts: bool = False,
+        enable_typewriter: bool = False,
+        tts_model: str = "qwen3-tts-instruct-flash",
+        tts_voice: str = "Elias",
+        parent=None,
     ):
         super().__init__(parent)
         self.setFrameShape(QFrame.NoFrame)
@@ -152,9 +166,9 @@ class ChatBubble(QFrame):
         self.bubble.setMaximumWidth(max_width)
         self.bubble.setStyleSheet(f"""
             QFrame#bubble {{
-                background: {cfg['bg']};
-                border: 1px solid {cfg['border']};
-                border-radius: {cfg['radius']};
+                background: {cfg["bg"]};
+                border: 1px solid {cfg["border"]};
+                border-radius: {cfg["radius"]};
             }}
         """)
 
@@ -164,13 +178,28 @@ class ChatBubble(QFrame):
 
         # 角色标签
         if cfg["label"]:
+            role_lbl_h = QHBoxLayout()
+            role_lbl_h.setSpacing(4)
+            role_lbl_h.setContentsMargins(0, 0, 0, 0)
+
+            if cfg.get("label_icon"):
+                role_icon = QLabel()
+                role_icon.setPixmap(
+                    Icons.colored_pixmap(
+                        cfg["label_icon"], cfg["label_color"], IconSize.XS
+                    )
+                )
+                role_lbl_h.addWidget(role_icon)
+
             role_lbl = QLabel(cfg["label"])
             role_lbl.setStyleSheet(
                 f"font-size: 10px; color: {cfg['label_color']};"
                 f"font-weight: 700; letter-spacing: 1px;"
                 f"background: transparent; font-family: {T.FONT};"
             )
-            inner.addWidget(role_lbl)
+            role_lbl_h.addWidget(role_lbl)
+            role_lbl_h.addStretch()
+            inner.addLayout(role_lbl_h)
 
         # 内容视图
         self.text_view = QTextBrowser()
@@ -208,8 +237,6 @@ class ChatBubble(QFrame):
 
     # ChatBubble.py - play_entrance_animation 方法修改
     def play_entrance_animation(self):
-        print("anime_play_in_chat_bubble")
-
         # 确保已显示
         self.show()
 
@@ -421,14 +448,21 @@ class ChatBubble(QFrame):
     # ══════════════════════════════════════════════════════════════════════════
 
     def _feed_tts_token(self, token: str) -> None:
-        if self._tts_queue is None: return
+        if self._tts_queue is None:
+            return
         token_text = str(token or "").strip("\r")
-        if not token_text: return
+        if not token_text:
+            return
 
-        if token_text == self._tts_last_token: return
+        if token_text == self._tts_last_token:
+            return
 
         stripped = token_text.strip()
-        if stripped and stripped[-1] in {"。", "！", "？", ".", "!", "?", "\n"} and len(stripped) > 3:
+        if (
+            stripped
+            and stripped[-1] in {"。", "！", "？", ".", "!", "?", "\n"}
+            and len(stripped) > 3
+        ):
             if stripped in self._tts_sentence_cache:
                 self._tts_last_token = token_text
                 return
@@ -440,7 +474,8 @@ class ChatBubble(QFrame):
         self._tts_queue.put(token_text)
 
     def _on_tts_audio_chunk(self, audio_chunk: bytes, sentence: str) -> None:
-        if not audio_chunk: return
+        if not audio_chunk:
+            return
         if sentence != self._tts_last_sentence:
             print(f"[ChatBubble TTS] playing: {sentence}")
             self._tts_last_sentence = sentence
