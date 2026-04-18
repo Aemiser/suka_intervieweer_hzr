@@ -130,7 +130,7 @@ class QuestionCard(QFrame):
 
         num_lbl = QLabel(f"#{global_index:03d}")
         num_lbl.setStyleSheet(
-            f"color: {T.TEXT}; font-size: 11px; font-weight: 700;"
+            f"background: transparent;color: {T.TEXT}; font-size: 11px; font-weight: 700;"
         )
         cls_tag = QLabel(f" {classify} ")
         cls_tag.setStyleSheet(f"""
@@ -198,7 +198,7 @@ class QuestionCard(QFrame):
         self.toggle_btn = QPushButton("查看答案")
         self.toggle_btn.setFixedSize(100, 34)
         self.toggle_btn.setCursor(Qt.PointingHandCursor)
-        self.toggle_btn.setIcon(Icons.get("visibility", IconSize.SM))
+        self.toggle_btn.setIcon(Icons.colored_pixmap("visibility",T.TEXT_DIM, IconSize.SM))
         self.toggle_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {T.SURFACE}; color: {T.TEXT_DIM};
@@ -215,10 +215,10 @@ class QuestionCard(QFrame):
         self.answer_frame.setVisible(self._answer_visible)
         if self._answer_visible:
             self.toggle_btn.setText("收起答案")
-            self.toggle_btn.setIcon(Icons.get("visibility_off", IconSize.SM))
+            self.toggle_btn.setIcon(Icons.colored_pixmap("visibility_off",T.TEXT_DIM, IconSize.SM))
         else:
             self.toggle_btn.setText("查看答案")
-            self.toggle_btn.setIcon(Icons.get("visibility", IconSize.SM))
+            self.toggle_btn.setIcon(Icons.colored_pixmap("visibility",T.TEXT_DIM, IconSize.SM))
 
 
 # ── 分页导航 ────────────────────────────────────────────────────────────────────
@@ -265,7 +265,7 @@ class PaginationBar(QFrame):
         btn.setFixedSize(36, 32)
         btn.setToolTip(tip)
         btn.setCursor(Qt.PointingHandCursor)
-        btn.setIcon(Icons.get(icon_name, IconSize.SM))
+        btn.setIcon(Icons.colored_pixmap(icon_name,T.TEXT_DIM, IconSize.SM))
         btn.setStyleSheet(f"""
             QPushButton {{ background: {T.SURFACE}; color: {T.TEXT_DIM};
                 border: 1px solid {T.BORDER}; border-radius: 8px; }}
