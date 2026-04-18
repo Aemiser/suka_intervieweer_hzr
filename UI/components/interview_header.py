@@ -14,7 +14,8 @@ from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame,
-    QVBoxLayout,QHBoxLayout,
+    QVBoxLayout,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QComboBox,
@@ -25,13 +26,14 @@ from PySide6.QtWidgets import (
 from UI.components import T, ButtonFactory, input_qss, combo_qss
 from UI.components.info.icon import Icons, IconSize
 
+
 class InterviewHeader(QFrame):
     """左侧侧边栏组件，包含所有控件与信号出口。"""
 
     # ── 对外信号 ──────────────────────────────────────────────────────────────
-    start_clicked = Signal()       # 「开始面试」按钮
-    finish_clicked = Signal()      # 「结束面试」按钮
-    resume_clicked = Signal()      # 「投递简历」按钮
+    start_clicked = Signal()  # 「开始面试」按钮
+    finish_clicked = Signal()  # 「结束面试」按钮
+    resume_clicked = Signal()  # 「投递简历」按钮
 
     def __init__(self, db, parent=None):
         super().__init__(parent)
@@ -44,7 +46,7 @@ class InterviewHeader(QFrame):
         self.setStyleSheet(
             f"""
             QFrame#InterviewSidebar {{
-                background: {T.SURFACE}; 
+                background: {T.BG}; 
                 border: none;
             }}
             """
@@ -86,7 +88,6 @@ class InterviewHeader(QFrame):
         title_lay.addWidget(icon_lbl)
         title_lay.addWidget(self.title)
 
-
         # 2. 核心卡片（包含表单与按钮）
         self._card = QFrame()
         self._card.setObjectName("CoreCard")
@@ -102,9 +103,9 @@ class InterviewHeader(QFrame):
 
         # 给卡片添加阴影效果
         shadow = QGraphicsDropShadowEffect(self._card)
-        shadow.setBlurRadius(20)          # 阴影模糊半径
+        shadow.setBlurRadius(20)  # 阴影模糊半径
         shadow.setColor(QColor(T.SURFACE3_DARK))
-        shadow.setOffset(0, 1)            # 向下偏移4像素，更贴合悬浮感
+        shadow.setOffset(0, 1)  # 向下偏移4像素，更贴合悬浮感
         shadow.setXOffset(0)
         shadow.setYOffset(1)
         self._card.setGraphicsEffect(shadow)
@@ -115,7 +116,9 @@ class InterviewHeader(QFrame):
 
         # --- 卡片内部：表单区域 ---
         name_lbl = QLabel("姓名")
-        name_lbl.setStyleSheet(f"color: {T.TEXT_DIM}; font-size: 12px; margin-bottom: 2px;")
+        name_lbl.setStyleSheet(
+            f"color: {T.TEXT_DIM}; font-size: 12px; margin-bottom: 2px;"
+        )
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("请输入姓名")
         self.name_input.setFixedHeight(36)
@@ -123,7 +126,9 @@ class InterviewHeader(QFrame):
         card_lay.addWidget(self.name_input)
 
         job_lbl = QLabel("岗位")
-        job_lbl.setStyleSheet(f"color: {T.TEXT_DIM}; font-size: 12px; margin-bottom: 2px;")
+        job_lbl.setStyleSheet(
+            f"color: {T.TEXT_DIM}; font-size: 12px; margin-bottom: 2px;"
+        )
         self.job_combo = QComboBox()
         self.job_combo.setFixedHeight(36)
         self.load_jobs()
@@ -153,7 +158,7 @@ class InterviewHeader(QFrame):
         self.start_btn.clicked.connect(self.start_clicked)
         card_lay.addWidget(self.start_btn)
 
-        self.finish_btn = ButtonFactory.solid("结束面试", T.PURPLE, height=38)
+        self.finish_btn = ButtonFactory.solid("结束面试", T.NEON, height=38)
         self.finish_btn.setEnabled(False)
         self.finish_btn.clicked.connect(self.finish_clicked)
         card_lay.addWidget(self.finish_btn)

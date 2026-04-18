@@ -43,7 +43,7 @@ class ChatArea(QScrollArea):
 
         # 容器与布局
         self._container = QWidget()
-        self._container.setStyleSheet(f"background: {T.SURFACE}; border: none; ")
+        self._container.setStyleSheet(f"background: {T.BG}; border: none; ")
         self._layout = QVBoxLayout(self._container)
         self._layout.setContentsMargins(22, 20, 22, 20)
         self._layout.setSpacing(12)
@@ -74,7 +74,6 @@ class ChatArea(QScrollArea):
             self._toast.hide()
         else:
             self._user_scrolled_up = True
-
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
