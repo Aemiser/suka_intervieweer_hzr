@@ -44,8 +44,8 @@ class Theme:
     BORDER2 = "#C9C6C0"  # 强调分割线/输入框聚焦态边缘
 
     # ── 气泡背景 · 对话场景 ─────────────────────────────────────────────────
-    USER_BUBBLE = "#9A8F9B"  # 用户气泡：莫兰迪紫灰，文字自动反白
-    AI_BUBBLE = "#FFFFFF"  # AI气泡：纯白 + 浅灰边框，干净清爽
+    USER_BUBBLE = "#FFFFFF"  # 用户气泡：白色
+    AI_BUBBLE = "#FFFFFF"  # AI气泡：白色
 
     # ── 语义别名 · 保持接口兼容 ─────────────────────────────────────────────
     SUCCESS = GREEN  # 灰绿 → 成功
@@ -59,7 +59,9 @@ class Theme:
 
     # ── 新拟态阴影工具 · 快速生成 box-shadow 字符串 ─────────────────────────
     @staticmethod
-    def neu_raise(base_light: str, base_dark: str, blur: int = 12, offset: int = 6) -> str:
+    def neu_raise(
+        base_light: str, base_dark: str, blur: int = 12, offset: int = 6
+    ) -> str:
         """
         生成"凸起"效果的新拟态阴影（用于按钮/卡片）
 
@@ -72,11 +74,15 @@ class Theme:
         Returns:
             CSS box-shadow 字符串
         """
-        return (f"{-offset}px {-offset}px {blur}px {base_light}, "
-                f"{offset}px {offset}px {blur}px {base_dark}")
+        return (
+            f"{-offset}px {-offset}px {blur}px {base_light}, "
+            f"{offset}px {offset}px {blur}px {base_dark}"
+        )
 
     @staticmethod
-    def neu_inset(base_light: str, base_dark: str, blur: int = 7, offset: int = 3) -> str:
+    def neu_inset(
+        base_light: str, base_dark: str, blur: int = 7, offset: int = 3
+    ) -> str:
         """
         生成"凹陷"效果的新拟态阴影（用于输入框/按下态）
 
@@ -89,8 +95,10 @@ class Theme:
         Returns:
             CSS box-shadow 字符串（带 inset）
         """
-        return (f"inset {-offset}px {-offset}px {blur}px {base_light}, "
-                f"inset {offset}px {offset}px {blur}px {base_dark}")
+        return (
+            f"inset {-offset}px {-offset}px {blur}px {base_light}, "
+            f"inset {offset}px {offset}px {blur}px {base_dark}"
+        )
 
 
 # 便捷别名，可直接 `from UI.components.info.Theme import T`

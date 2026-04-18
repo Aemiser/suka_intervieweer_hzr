@@ -127,7 +127,7 @@ class ScoreCardBubble(QFrame):
 
         # 综合得分
         overall_frame = QFrame()
-        overall_frame.setStyleSheet(f"background: {T.GREEN}11; border-radius: 8px;")
+        overall_frame.setStyleSheet(f"background: transparent; border-radius: 8px;")
         overall_lay = QVBoxLayout(overall_frame)
         overall_lay.setContentsMargins(14, 8, 14, 8)
         overall_lay.setAlignment(Qt.AlignCenter)

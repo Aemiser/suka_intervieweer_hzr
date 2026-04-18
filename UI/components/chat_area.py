@@ -75,6 +75,7 @@ class ChatArea(QScrollArea):
         else:
             self._user_scrolled_up = True
 
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self._toast.isVisible():
