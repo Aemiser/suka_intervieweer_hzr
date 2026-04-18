@@ -117,8 +117,7 @@ class HelperPanel(QWidget):
         self._refresh_tool_status()
         self._tool_status.setStyleSheet(f"""
             font-size: 11px; color: {T.GREEN}; font-weight: 600;
-            background: {T.GREEN}11; border: 1px solid {T.GREEN}33;
-            border-radius: 10px; padding: 2px 10px;
+            background: transparent; 
         """)
 
         clear_btn = ButtonFactory.ghost(
