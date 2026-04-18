@@ -105,7 +105,7 @@ class AsrButton(QWidget):
     status_changed = Signal(str)
 
     def _debug_btn_state(self, label: str = "") -> None:
-        """🔥 暴力打印按钮所有关键状态，直接复制粘贴用"""
+        """暴力打印按钮所有关键状态，直接复制粘贴用"""
         for name, btn in [
             ("btn_start", getattr(self, "btn_start", None)),
             ("btn_stop", getattr(self, "btn_stop", None)),
@@ -164,7 +164,7 @@ class AsrButton(QWidget):
     # UI 构建（分离开始/停止/取消按钮）
     # ══════════════════════════════════════════════════════════════════════════
     def _build_ui(self) -> None:
-        main_lay = QVBoxLayout(self)
+        main_lay = QHBoxLayout(self)
         main_lay.setContentsMargins(0, 0, 0, 0)
         main_lay.setSpacing(8)
 
@@ -189,12 +189,13 @@ class AsrButton(QWidget):
         ctrl_row.addWidget(self.btn_start)
         ctrl_row.addWidget(self.btn_stop)
         ctrl_row.addWidget(self.btn_cancel)
+        ctrl_row.addStretch()
         main_lay.addLayout(ctrl_row)
 
         # 预览控制栏（默认隐藏）
         self.preview_frame = QFrame()
         self.preview_frame.setStyleSheet(
-            f"QFrame {{ background: {T.SURFACE}; border: 1px solid {T.BORDER}; border-radius: 8px; }}"
+            f"QFrame {{ background: transparent; border: none; }}"
         )
         self.preview_frame.setVisible(False)
         vp_lay = QHBoxLayout(self.preview_frame)

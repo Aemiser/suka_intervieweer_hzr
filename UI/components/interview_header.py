@@ -130,9 +130,18 @@ class InterviewHeader(QFrame):
         card_lay.addWidget(job_lbl)
         card_lay.addWidget(self.job_combo)
 
-        card_lay.addSpacing(120)  # 原 4 → 20
-        card_lay.addWidget(self._h_line())
-        card_lay.addSpacing(120)  # 原 4 → 20
+        # card_lay.addSpacing(120)  # 原 4 → 20
+        # card_lay.addWidget(self._h_line())
+        # card_lay.addSpacing(120)  # 原 4 → 20
+        card_lay.addStretch()
+        # 状态提示
+        self.status_lbl = QLabel("准备就绪")
+        self.status_lbl.setAlignment(Qt.AlignCenter)
+        self.status_lbl.setWordWrap(True)
+        self.status_lbl.setStyleSheet(
+            f"color: {T.TEXT_DIM}; font-size: 12px; font-family: {T.FONT}; padding: 8px 0;"
+        )
+        card_lay.addWidget(self.status_lbl)
 
         # --- 卡片内部：操作按钮 ---
         self.resume_btn = ButtonFactory.solid("投递简历", T.GREEN, height=38)
@@ -149,22 +158,10 @@ class InterviewHeader(QFrame):
         self.finish_btn.clicked.connect(self.finish_clicked)
         card_lay.addWidget(self.finish_btn)
 
-        card_lay.addStretch()  # 将按钮区推向上方，下方留白
         self._card.setMinimumHeight(600)
         # 将卡片加入外层布局
         outer_lay.addWidget(self._card)
 
-        # 3. 弹簧将底部状态推至最下方
-        outer_lay.addStretch()
-
-        # 4. 底部状态提示（独立在卡片外部）
-        self.status_lbl = QLabel("准备就绪")
-        self.status_lbl.setAlignment(Qt.AlignCenter)
-        self.status_lbl.setWordWrap(True)
-        self.status_lbl.setStyleSheet(
-            f"color: {T.TEXT_DIM}; font-size: 12px; font-family: {T.FONT}; padding: 8px 0;"
-        )
-        outer_lay.addWidget(self.status_lbl)
         self._set_icon()
 
     def _set_icon(self) -> None:
