@@ -130,17 +130,17 @@ class QuestionCard(QFrame):
 
         num_lbl = QLabel(f"#{global_index:03d}")
         num_lbl.setStyleSheet(
-            f"color: {T.TEXT_MUTE}; font-size: 11px; font-weight: 700;"
+            f"color: {T.TEXT}; font-size: 11px; font-weight: 700;"
         )
         cls_tag = QLabel(f" {classify} ")
         cls_tag.setStyleSheet(f"""
-            background: {cls_color}18; color: {cls_color};
+            background: {cls_color}18; color: {T.TEXT};
             border: 1px solid {cls_color}55; border-radius: 4px;
             font-size: 11px; font-weight: 600; padding: 2px 8px;
         """)
         lvl_tag = QLabel(f" {level} ")
         lvl_tag.setStyleSheet(f"""
-            background: {lvl_bg}; color: {lvl_fg};
+            background: {lvl_bg}; color: {T.TEXT};
             border-radius: 4px; font-size: 11px; font-weight: 600; padding: 2px 8px;
         """)
         tags_row.addWidget(num_lbl)
