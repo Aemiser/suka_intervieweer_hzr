@@ -69,8 +69,8 @@ class EqualWidthTabWidget(QTabWidget):
 
         # 应用主题样式
         self.setStyleSheet(f"""
-            QTabWidget::pane {{ border: none; background: {T.SURFACE}; }}
-            QTabBar {{ background: {T.GREEN}; }}
+            QTabWidget::pane {{ border: none;  background: transparent;  }}
+            QTabBar {{  background: transparent;  }}
             QTabBar::tab {{
                 background: {T.GREEN}; color: #FFFFFF;
                 padding: 12px 26px; font-size: 15px; font-weight: 700;

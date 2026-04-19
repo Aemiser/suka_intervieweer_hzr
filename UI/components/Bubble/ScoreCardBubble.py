@@ -50,16 +50,16 @@ class ScoreCardBubble(QFrame):
         card.setStyleSheet(f"""
             QFrame#score_card {{
                 background: {T.SURFACE2};
-                border: 1px solid {T.NEON}22;
-                border-left: 3px solid {T.NEON};
+                border: none;
                 border-radius: 12px;
             }}
         """)
 
         shadow = QGraphicsDropShadowEffect(card)
         shadow.setBlurRadius(20)
-        shadow.setColor(QColor(T.NEON).darker(300))
-        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(T.SURFACE2_DARK))
+        shadow.setXOffset(0)
+        shadow.setYOffset(0)
         card.setGraphicsEffect(shadow)
 
         card_lay = QVBoxLayout(card)

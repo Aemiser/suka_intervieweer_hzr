@@ -287,7 +287,7 @@ class ResumeSubmitButton(QWidget):
         self.lbl_file_size.setText(f"大小: {size_str}")
         self.info_frame.setVisible(True)
         self.btn_submit.setEnabled(True)
-        self.btn_select.setText("📁 更换简历")
+        self.btn_select.setText("更换简历")
 
         self.status_changed.emit(f"已选择: {file_name}")
         self._set_state("selected")
@@ -311,7 +311,7 @@ class ResumeSubmitButton(QWidget):
         self.lbl_file_size.setText("")
         self.info_frame.setVisible(False)
         self.btn_submit.setEnabled(False)
-        self.btn_select.setText("📁 选择简历")
+        self.btn_select.setText("选择简历")
 
         self.status_changed.emit("已移除简历文件")
         self._set_state("idle")
@@ -398,7 +398,7 @@ class ResumeSubmitButton(QWidget):
         self.status_changed.emit(f"投递失败: {error_msg}")
 
         QMessageBox.critical(
-            self, "投递失败", f"❌ 简历投递失败:\n{error_msg}\n\n请检查文件后重试。"
+            self, "投递失败", f"简历投递失败:\n{error_msg}\n\n请检查文件后重试。"
         )
 
     def _thread_finished(self) -> None:
