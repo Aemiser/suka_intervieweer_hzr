@@ -104,16 +104,18 @@ class HistoryPanel(QWidget):
         charts.setSpacing(16)
 
         # 折线图卡片
-        growth_card = ChartCard()
+        growth_card = ChartCard(T.SCORE_TREND_BG)
         g_lay = QVBoxLayout(growth_card)
         g_lay.setContentsMargins(16, 14, 16, 14)
         g_title_h = QHBoxLayout()
         g_title_h.setSpacing(6)
         g_title_icon = QLabel()
-        g_title_icon.setPixmap(Icons.colored_pixmap("trending_up", T.INFO, IconSize.SM))
+        g_title_icon.setPixmap(
+            Icons.colored_pixmap("trending_up", T.SCORE_TREND_MAIN, IconSize.SM)
+        )
         g_title = QLabel("综合得分趋势")
         g_title.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {T.INFO}; "
+            f"font-size: 13px; font-weight: 700; color: {T.SCORE_TREND_TITLE}; "
             f"background: transparent; font-family: {T.FONT};"
         )
         g_title_h.addWidget(g_title_icon)
@@ -124,16 +126,18 @@ class HistoryPanel(QWidget):
         g_lay.addWidget(self.growth_chart)
 
         # 雷达图卡片
-        radar_card = ChartCard()
+        radar_card = ChartCard(T.ABILITY_BG)
         r_lay = QVBoxLayout(radar_card)
         r_lay.setContentsMargins(16, 14, 16, 14)
         r_title_h = QHBoxLayout()
         r_title_h.setSpacing(6)
         r_title_icon = QLabel()
-        r_title_icon.setPixmap(Icons.colored_pixmap("radar", T.TEXT_DIM, IconSize.SM))
+        r_title_icon.setPixmap(
+            Icons.colored_pixmap("radar", T.ABILITY_MAIN, IconSize.SM)
+        )
         r_title = QLabel("最近能力维度")
         r_title.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {T.TEXT_DIM}; "
+            f"font-size: 13px; font-weight: 700; color: {T.ABILITY_TITLE}; "
             f"background: transparent; font-family: {T.FONT};"
         )
         r_title_h.addWidget(r_title_icon)
@@ -148,7 +152,7 @@ class HistoryPanel(QWidget):
         return charts
 
     def _build_report(self) -> ChartCard:
-        card = ChartCard()
+        card = ChartCard(T.REVIEW_BG)
         lay = QVBoxLayout(card)
         lay.setContentsMargins(18, 14, 18, 14)
         lay.setSpacing(8)
@@ -156,10 +160,12 @@ class HistoryPanel(QWidget):
         title_h = QHBoxLayout()
         title_h.setSpacing(6)
         title_icon = QLabel()
-        title_icon.setPixmap(Icons.colored_pixmap("article", T.WARNING, IconSize.SM))
+        title_icon.setPixmap(
+            Icons.colored_pixmap("article", T.REVIEW_MAIN, IconSize.SM)
+        )
         title = QLabel("最近面试表现回顾")
         title.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {T.WARNING}; "
+            f"font-size: 13px; font-weight: 700; color: {T.REVIEW_TITLE}; "
             f"background: transparent; font-family: {T.FONT};"
         )
         title_h.addWidget(title_icon)

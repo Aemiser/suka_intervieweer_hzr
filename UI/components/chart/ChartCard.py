@@ -10,13 +10,14 @@ from UI.components.info.Theme import T
 
 
 class ChartCard(QFrame):
-    """带投影的暗色卡片，直接添加子 layout 即可使用。"""
+    """带投影的卡片，可自定义背景颜色。"""
 
-    def __init__(self, parent=None):
+    def __init__(self, bg_color: str = None, parent=None):
         super().__init__(parent)
+        bg = bg_color or T.SURFACE3
         self.setStyleSheet(f"""
             QFrame {{
-                background: {T.SURFACE3};
+                background: {bg};
                 border-radius: 12px;
             }}
         """)

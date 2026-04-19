@@ -53,6 +53,20 @@ class Theme:
     WARNING = YELLOW  # 土黄 → 警告
     INFO = NEON  # 灰蓝 → 信息提示
 
+    # ── 历史面板三卡片配色 ───────────────────────────────────────────
+    # 综合得分趋势
+    SCORE_TREND_BG = "#E8F0EC"
+    SCORE_TREND_MAIN = "#7DB89E"
+    SCORE_TREND_TITLE = "#5A967A"
+    # 最近能力维度
+    ABILITY_BG = "#EAE8F0"
+    ABILITY_MAIN = "#A898C0"
+    ABILITY_TITLE = "#7B6B8F"
+    # 面试表现回顾
+    REVIEW_BG = "#F5F0E8"
+    REVIEW_MAIN = "#C9A96E"
+    REVIEW_TITLE = "#8B7347"
+
     # ── 字体栈 · 跨平台优雅降级 ─────────────────────────────────────────────
     FONT = '-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'
     FONT_MONO = '"JetBrains Mono", "Cascadia Code", "Fira Code", monospace'
