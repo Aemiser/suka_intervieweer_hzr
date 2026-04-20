@@ -10,29 +10,40 @@ ASR_button.py
 import os
 from PySide6.QtCore import Qt, Signal, QThread, QObject, QTimer
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QMessageBox, QSizePolicy
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QFrame,
+    QMessageBox,
+    QSizePolicy,
 )
 from service.voice_sdk.audio.recorder import VoiceRecorder
 from service.voice_sdk.stt.client import STTClient
 from service.voice_sdk.models import RecordBundle, VoiceResult  # 补充 VoiceResult
 from ..ButtonFactory import ButtonFactory, T
+from UI.components.info.icon import Icons, IconSize
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 后台 Worker（保持不变）
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class VoiceWorker(QObject):
-    finished = Signal(object)   # RecordBundle
-    error    = Signal(str)
+    finished = Signal(object)  # RecordBundle
+    error = Signal(str)
 
     def __init__(self):
         super().__init__()
         self.recorder = VoiceRecorder()
 
-    def stop(self): self.recorder.stop()
-    def cancel(self): self.recorder.cancel()
+    def stop(self):
+        self.recorder.stop()
+
+    def cancel(self):
+        self.recorder.cancel()
 
     def run(self):
         try:
@@ -44,17 +55,23 @@ class VoiceWorker(QObject):
             if os.path.getsize(audio_path) < 1000:
                 raise RuntimeError("录音文件过小，可能未成功捕获音频")
 
-            self.finished.emit(RecordBundle(
-                transcript="", audio_path=audio_path, duration=duration,
-                emotion="流畅", compressed_audio_file="", non_speech=False,
-            ))
+            self.finished.emit(
+                RecordBundle(
+                    transcript="",
+                    audio_path=audio_path,
+                    duration=duration,
+                    emotion="流畅",
+                    compressed_audio_file="",
+                    non_speech=False,
+                )
+            )
         except Exception as e:
             self.error.emit(str(e))
 
 
 class ASRWorker(QObject):
-    finished = Signal(object)   # VoiceResult
-    error    = Signal(str)
+    finished = Signal(object)  # VoiceResult
+    error = Signal(str)
 
     def __init__(self, audio_path: str):
         super().__init__()
@@ -71,23 +88,24 @@ class ASRWorker(QObject):
 # AsrButton 组件（重构版）
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class AsrButton(QWidget):
     # ── 信号定义 ──────────────────────────────────────────────────────────────
     recording_started = Signal()
     recording_stopped = Signal()
-    recording_error   = Signal(str)
+    recording_error = Signal(str)
 
-    audio_recorded    = Signal(object)  # RecordBundle
-    asr_started       = Signal()
-    asr_finished      = Signal(str)
-    asr_error         = Signal(str)
+    audio_recorded = Signal(object)  # RecordBundle
+    asr_started = Signal()
+    asr_finished = Signal(str)
+    asr_error = Signal(str)
 
-    play_requested    = Signal(str)     # audio_path
-    bundle_sent       = Signal(object)  # RecordBundle
-    status_changed    = Signal(str)
+    play_requested = Signal(str)  # audio_path
+    bundle_sent = Signal(object)  # RecordBundle
+    status_changed = Signal(str)
 
     def _debug_btn_state(self, label: str = "") -> None:
-        """🔥 暴力打印按钮所有关键状态，直接复制粘贴用"""
+        """暴力打印按钮所有关键状态，直接复制粘贴用"""
         for name, btn in [
             ("btn_start", getattr(self, "btn_start", None)),
             ("btn_stop", getattr(self, "btn_stop", None)),
@@ -107,28 +125,32 @@ class AsrButton(QWidget):
             # 样式表原始内容（排查 :disabled 是否生效）
             style = btn.styleSheet()
             if ":disabled" in style:
-                print(f"  • :disabled 样式   : ✅ 已定义")
+                print(f"  • :disabled 样式   : 已定义")
             else:
-                print(f"  • :disabled 样式   : ❌ 未定义 ⚠️")
+                print(f"  • :disabled 样式   : 未定义 ⚠️")
             # 直接尝试调用 setEnabled 看是否报错
             try:
                 btn.setEnabled(btn.isEnabled())  # 设为当前值，测试方法是否存在
-                print(f"  • setEnabled() 调用: ✅ 成功")
+                print(f"  • setEnabled() 调用: 成功")
             except AttributeError as e:
-                print(f"  • setEnabled() 调用: ❌ 报错 -> {e}")
+                print(f"  • setEnabled() 调用: 报错 -> {e}")
             except Exception as e:
-                print(f"  • setEnabled() 调用: ❌ 异常 -> {e}")
-            print(f"  • parent enabled   : {btn.parent().isEnabled() if btn.parent() else 'N/A'}")
+                print(f"  • setEnabled() 调用: 异常 -> {e}")
+            print(
+                f"  • parent enabled   : {btn.parent().isEnabled() if btn.parent() else 'N/A'}"
+            )
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._is_recording       = False
-        self._is_asr_processing  = False
-        self._pending_bundle     = None
-        self._auto_transcribe    = False
+        self._is_recording = False
+        self._is_asr_processing = False
+        self._pending_bundle = None
+        self._auto_transcribe = False
         self._stop_timeout_timer = QTimer(self)  # 超时保护定时器
         self._stop_timeout_timer.setSingleShot(True)  # 改为单次触发更安全
-        self._stop_timeout_timer.timeout.connect(self._force_reset_on_timeout)  # 🔑 关键补充
+        self._stop_timeout_timer.timeout.connect(
+            self._force_reset_on_timeout
+        )  # 🔑 关键补充
 
         self._voice_thread: QThread | None = None
         self._voice_worker: VoiceWorker | None = None
@@ -142,7 +164,7 @@ class AsrButton(QWidget):
     # UI 构建（分离开始/停止/取消按钮）
     # ══════════════════════════════════════════════════════════════════════════
     def _build_ui(self) -> None:
-        main_lay = QVBoxLayout(self)
+        main_lay = QHBoxLayout(self)
         main_lay.setContentsMargins(0, 0, 0, 0)
         main_lay.setSpacing(8)
 
@@ -151,27 +173,30 @@ class AsrButton(QWidget):
         ctrl_row.setSpacing(8)
 
         # 1. 初始/空闲状态按钮
-        self.btn_start = ButtonFactory.solid("🎤 语音", T.PURPLE, height=48, width=90)
+        self.btn_start = ButtonFactory.solid("语音", T.NEON, height=48, width=90)
         self.btn_start.clicked.connect(self._start_recording)
 
         # 2. 录音中：停止按钮
-        self.btn_stop = ButtonFactory.solid("⏹ 停止录音", T.NEON, height=48, width=100)
+        self.btn_stop = ButtonFactory.solid("停止录音", T.YELLOW, height=48, width=100)
         self.btn_stop.setVisible(False)
         self.btn_stop.clicked.connect(self._stop_recording)
 
         # 3. 录音中：取消按钮
-        self.btn_cancel = ButtonFactory.solid("❌ 取消", T.ACCENT, height=48, width=80)
+        self.btn_cancel = ButtonFactory.solid("取消", T.ACCENT, height=48, width=80)
         self.btn_cancel.setVisible(False)
         self.btn_cancel.clicked.connect(self._cancel_recording)
 
         ctrl_row.addWidget(self.btn_start)
         ctrl_row.addWidget(self.btn_stop)
         ctrl_row.addWidget(self.btn_cancel)
+        ctrl_row.addStretch()
         main_lay.addLayout(ctrl_row)
 
         # 预览控制栏（默认隐藏）
         self.preview_frame = QFrame()
-        self.preview_frame.setStyleSheet(f"QFrame {{ background: {T.SURFACE}; border: 1px solid {T.BORDER}; border-radius: 8px; }}")
+        self.preview_frame.setStyleSheet(
+            f"QFrame {{ background: transparent; border: none; }}"
+        )
         self.preview_frame.setVisible(False)
         vp_lay = QHBoxLayout(self.preview_frame)
         vp_lay.setContentsMargins(8, 4, 8, 4)
@@ -181,11 +206,13 @@ class AsrButton(QWidget):
         self.lbl_preview.setStyleSheet(f"color: {T.TEXT}; font-size:12px;")
         self.lbl_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
-        self.btn_play = ButtonFactory.solid("▶ 播放", T.TEXT_DIM, height=30, width=80)
+        self.btn_play = ButtonFactory.solid("播放", T.TEXT_DIM, height=30, width=80)
         self.btn_play.setVisible(False)
         self.btn_play.clicked.connect(self._on_play_clicked)
 
-        self.btn_transcribe = ButtonFactory.solid("转文字", T.GREEN, height=30, width=80)
+        self.btn_transcribe = ButtonFactory.solid(
+            "转文字", T.GREEN, height=30, width=100
+        )
         self.btn_transcribe.clicked.connect(self._on_transcribe_clicked)
 
         self.btn_send = ButtonFactory.solid("发送", T.NEON, height=30, width=80)
@@ -202,14 +229,33 @@ class AsrButton(QWidget):
         main_lay.addWidget(self.preview_frame)
 
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        QTimer.singleShot(100, lambda: self._debug_btn_state("INIT"))  # 延迟确保布局完成
+        QTimer.singleShot(
+            100, lambda: self._debug_btn_state("INIT")
+        )  # 延迟确保布局完成
+
+        self._set_icon()
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 图标集中注册区 (按状态映射)
+    # ══════════════════════════════════════════════════════════════════════
+
+    def _set_icon(self) -> None:
+        """集中注册 AsrButton 在不同状态下的图标"""
+        self.btn_start.setIcon(Icons.get("mic", IconSize.MD))
+        self.btn_stop.setIcon(Icons.get("stop", IconSize.MD))
+        self.btn_cancel.setIcon(Icons.get("cancel", IconSize.MD))
+        self.btn_send.setIcon(Icons.get("send", IconSize.MD))
+        self.btn_clear.setIcon(Icons.get("delete", IconSize.MD))
+        self.btn_transcribe.setIcon(Icons.get("subtitles", IconSize.MD))
+        self.btn_play.setIcon(Icons.get("play_arrow", IconSize.MD))
 
     # ══════════════════════════════════════════════════════════════════════════
     # 交互逻辑（明确的状态流转）
     # ══════════════════════════════════════════════════════════════════════════
 
     def _start_recording(self) -> None:
-        if self._is_asr_processing: return
+        if self._is_asr_processing:
+            return
         self._clear_pending_bundle()
         self._is_recording = True
 
@@ -218,7 +264,7 @@ class AsrButton(QWidget):
         self.btn_start.setVisible(False)
         self.btn_stop.setEnabled(True)
         self.btn_stop.setVisible(True)
-        self.btn_stop.setText("⏹ 停止录音")
+        self.btn_stop.setText("停止录音")
         self.btn_cancel.setEnabled(True)
         self.btn_cancel.setVisible(True)
 
@@ -226,6 +272,7 @@ class AsrButton(QWidget):
         self.recording_started.emit()
         self._start_voice_thread()
         self._debug_btn_state("start_recording")
+
     def _stop_recording(self) -> None:
         if not self._is_recording:
             print("[WARN] 停止按钮点击失败：当前未在录音")
@@ -239,7 +286,7 @@ class AsrButton(QWidget):
 
         self.btn_stop.setEnabled(False)
         self.btn_cancel.setEnabled(False)
-        self.btn_stop.setText("⏳ 处理中...")
+        self.btn_stop.setText("处理中...")
         self.status_changed.emit("正在结束录音...")
         self._stop_timeout_timer.start(3000)
         self._debug_btn_state("stop_recording")
@@ -293,19 +340,21 @@ class AsrButton(QWidget):
         self._debug_btn_state("voice_error")
         # 弹窗放在最后，避免阻塞状态恢复
         QMessageBox.critical(
-            self, "语音输入失败",
-            f"{err}\n\n请检查麦克风权限或设备占用后重试。"
+            self, "语音输入失败", f"{err}\n\n请检查麦克风权限或设备占用后重试。"
         )
 
     # 预览区操作
     def _on_play_clicked(self) -> None:
-        if not self._pending_bundle or not os.path.exists(self._pending_bundle.audio_path):
+        if not self._pending_bundle or not os.path.exists(
+            self._pending_bundle.audio_path
+        ):
             QMessageBox.warning(self, "播放失败", "未找到语音文件。")
             return
         self.play_requested.emit(self._pending_bundle.audio_path)
 
     def _on_transcribe_clicked(self) -> None:
-        if not self._pending_bundle or self._is_asr_processing: return
+        if not self._pending_bundle or self._is_asr_processing:
+            return
         if not os.path.exists(self._pending_bundle.audio_path):
             QMessageBox.warning(self, "转文字失败", "录音文件不存在")
             return
@@ -313,7 +362,8 @@ class AsrButton(QWidget):
         self._start_asr_thread()
 
     def _on_send_clicked(self) -> None:
-        if not self._pending_bundle or self._is_asr_processing: return
+        if not self._pending_bundle or self._is_asr_processing:
+            return
         self._auto_transcribe = True
         self.bundle_sent.emit(self._pending_bundle)
         self._start_asr_thread()
@@ -328,9 +378,14 @@ class AsrButton(QWidget):
 
         transcript = (result.transcript or "").strip()
         if transcript and not transcript.startswith("[未检测到语音内容]"):
-            self.status_changed.emit("转写完成" if not self._auto_transcribe else "语音已发送，AI 正在处理...")
+            self.status_changed.emit(
+                "转写完成"
+                if not self._auto_transcribe
+                else "语音已发送，AI 正在处理..."
+            )
             self.asr_finished.emit(transcript)
-            if self._auto_transcribe: self._clear_pending_bundle()
+            if self._auto_transcribe:
+                self._clear_pending_bundle()
         else:
             msg = "未识别到有效语音，请重试"
             self.status_changed.emit(msg)
@@ -370,7 +425,7 @@ class AsrButton(QWidget):
         self.btn_start.setEnabled(True)
         self.btn_start.setVisible(True)
 
-        self.btn_stop.setText("⏹ 停止录音")
+        self.btn_stop.setText("停止录音")
         self.btn_stop.setEnabled(True)
         self.btn_stop.setVisible(False)
 
@@ -419,7 +474,9 @@ class AsrButton(QWidget):
         self._asr_thread.finished.connect(self._asr_thread.deleteLater)
         self._asr_thread.start()
 
-    def _stop_thread(self, thread_attr: str, worker_attr: str, stop_worker: bool = False) -> None:
+    def _stop_thread(
+        self, thread_attr: str, worker_attr: str, stop_worker: bool = False
+    ) -> None:
         thread = getattr(self, thread_attr, None)
         worker = getattr(self, worker_attr, None)
 
@@ -452,8 +509,10 @@ class AsrButton(QWidget):
         if self._pending_bundle:
             path = self._pending_bundle.audio_path
             if os.path.exists(path):
-                try: os.remove(path)
-                except: pass
+                try:
+                    os.remove(path)
+                except:
+                    pass
         self._pending_bundle = None
         self.preview_frame.setVisible(False)
         self.lbl_preview.setText("")

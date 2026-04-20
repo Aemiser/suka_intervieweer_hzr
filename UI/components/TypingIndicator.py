@@ -22,7 +22,7 @@ class TypingIndicator(QFrame):
         bubble.setStyleSheet(f"""
             QFrame#typing_bubble {{
                 background: {T.AI_BUBBLE};
-                border: 1px solid {T.BORDER2};
+                border: 1px solid {T.BORDER};
                 border-radius: 18px;
                 border-top-left-radius: 4px;
             }}
@@ -37,7 +37,7 @@ class TypingIndicator(QFrame):
         for _ in range(3):
             dot = QLabel("●")
             dot.setStyleSheet(
-                f"color: {T.NEON}33; font-size: 9px; background: transparent;"
+                f"color: {T.INFO}33; font-size: 9px; background: transparent;"
             )
             b_lay.addWidget(dot)
             self._dots.append(dot)
@@ -56,7 +56,7 @@ class TypingIndicator(QFrame):
         for i, dot in enumerate(self._dots):
             alpha = "FF" if i == self._step % 3 else "33"
             dot.setStyleSheet(
-                f"color: {T.NEON}{alpha}; font-size: 9px; background: transparent;"
+                f"color: {T.INFO}{alpha}; font-size: 9px; background: transparent;"
             )
         self._step += 1
 

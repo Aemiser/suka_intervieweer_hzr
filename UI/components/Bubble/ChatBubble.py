@@ -7,16 +7,9 @@ Role 决定气泡样式，**同时决定 TTS 能力**：
   - "user"              → 用户角色，无 TTS
   - "system"            → 系统提示，无 TTS，居中纯文本显示
 
-TTS 设计原则
-------------
-- TTS 线程完全内聚在 ChatBubble 内，外部（Panel）只需调用
-  `bubble.start_tts()` / `bubble.stop_tts()`，或在流式阶段让
-  `append_chunk()` 自动驱动。
-- 通过构造参数 `enable_tts: bool` 显式开关，默认 False，需要 TTS
-  的调用方传 True；仅当 `DASHSCOPE_API_KEY` 存在时才实际启动。
-- TTS 线程为 daemon 线程，不阻塞主窗口关闭。
-- `stop_tts(force=False)` 可在流结束/窗口关闭时调用，非强制模式
-  会等待当前句子播完再停；强制模式立即终止。
+新增特性：
+  - 入场动画：气泡从下方滑入并淡入
+  - 打字机效果：AI 回复支持逐字显示
 """
 
 from __future__ import annotations
@@ -27,70 +20,85 @@ import threading
 from typing import Callable
 
 from PySide6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel,
-    QTextBrowser, QSizePolicy,
+    QFrame,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QTextBrowser,
+    QSizePolicy,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCursor
+from PySide6.QtCore import (
+    Qt,
+    QTimer,
+    QPropertyAnimation,
+    QRect,
+    QEasingCurve,
+    QParallelAnimationGroup,
+)
+from PySide6.QtGui import QTextCursor, QPixmap
 
 from UI.components.info.Theme import T
 from UI.components.util.md_to_html import md_to_html
-
+from UI.components.info.icon import Icons, IconSize
 
 # ── Role 配置表 ───────────────────────────────────────────────────────────────
 
 _ROLE_CFG: dict[str, dict] = {
     "user": {
-        "label":       "👤  你",
-        "label_color": T.YELLOW,
-        "bg":          T.USER_BUBBLE,
-        "border":      f"{T.NEON}33",
-        "radius":      "18px 18px 4px 18px",
-        "align":       "right",
-        "tts":         False,   # 用户侧不播报
+        "label": "你",
+        "label_icon": "person",
+        "label_color": T.NEON,
+        "bg": T.USER_BUBBLE,
+        "border": T.BORDER,
+        "radius": "18px 18px 4px 18px",
+        "align": "right",
+        "tts": False,
     },
     "assistant": {
-        "label":       "🤖  AI 助手",
+        "label": "AI 助手",
+        "label_icon": "smart_toy",
         "label_color": T.NEON,
-        "bg":          T.AI_BUBBLE,
-        "border":      T.BORDER2,
-        "radius":      "4px 18px 18px 18px",
-        "align":       "left",
-        "tts":         True,    # 助手侧可播报
+        "bg": T.AI_BUBBLE,
+        "border": T.BORDER,
+        "radius": "4px 18px 18px 18px",
+        "align": "left",
+        "tts": True,
     },
     "ai": {
-        "label":       "🤖  AI 面试官",
+        "label": "AI 面试官",
+        "label_icon": "smart_toy",
         "label_color": T.NEON,
-        "bg":          T.AI_BUBBLE,
-        "border":      T.BORDER2,
-        "radius":      "4px 18px 18px 18px",
-        "align":       "left",
-        "tts":         True,    # 面试官侧可播报
+        "bg": T.AI_BUBBLE,
+        "border": T.BORDER,
+        "radius": "4px 18px 18px 18px",
+        "align": "left",
+        "tts": True,
     },
     "system": {
-        "label":       "",
+        "label": "",
+        "label_icon": None,
         "label_color": T.TEXT_DIM,
-        "bg":          "transparent",
-        "border":      "transparent",
-        "radius":      "8px",
-        "align":       "center",
-        "tts":         False,
+        "bg": "transparent",
+        "border": "transparent",
+        "radius": "8px",
+        "align": "center",
+        "tts": False,
     },
 }
 
 
 # ── ChatBubble ────────────────────────────────────────────────────────────────
 
+
 class ChatBubble(QFrame):
     """
     参数
     ----
     role        : "user" | "assistant" | "ai" | "system"
-    content     : 初始 Markdown 文本（可为空，稍后通过 append_chunk 流式填充）
-    max_width   : 气泡最大宽度（px）
-    enable_tts  : 是否启用 TTS 语音播报（仅对支持 TTS 的 role 生效）
-    tts_model   : TTS 模型名
-    tts_voice   : 发音人
+    content     : 初始 Markdown 文本
+    max_width   : 气泡最大宽度
+    enable_tts  : 是否启用 TTS
+    enable_typewriter : 是否启用打字机效果（仅 AI 角色建议开启）
     """
 
     def __init__(
@@ -99,6 +107,7 @@ class ChatBubble(QFrame):
         content: str = "",
         max_width: int = 580,
         enable_tts: bool = False,
+        enable_typewriter: bool = False,
         tts_model: str = "qwen3-tts-instruct-flash",
         tts_voice: str = "Elias",
         parent=None,
@@ -106,25 +115,33 @@ class ChatBubble(QFrame):
         super().__init__(parent)
         self.setFrameShape(QFrame.NoFrame)
 
-        self._role      = role
-        self._content   = content
+        self._role = role
+        self._content = content
         self._max_width = max_width
 
         # TTS 状态
         cfg = _ROLE_CFG.get(role, _ROLE_CFG["assistant"])
         self._tts_capable: bool = cfg["tts"] and enable_tts
-        self._tts_model   = tts_model
-        self._tts_voice   = tts_voice
+        self._tts_model = tts_model
+        self._tts_voice = tts_voice
         self._tts_started = False
 
-        self._tts_queue:   queue.Queue[str | None] | None = None
-        self._tts_thread:  threading.Thread | None        = None
-        self._tts_player                                  = None  # StreamingAudioPlayer
+        self._tts_queue: queue.Queue[str | None] | None = None
+        self._tts_thread: threading.Thread | None = None
+        self._tts_player = None
 
         # 去重缓存
-        self._tts_last_token: str             = ""
-        self._tts_sentence_cache: list[str]   = []
-        self._tts_last_sentence: str          = ""
+        self._tts_last_token: str = ""
+        self._tts_sentence_cache: list[str] = []
+        self._tts_last_sentence: str = ""
+
+        # ── 动画 & 打字机状态 ───────────────────────────────────────────────
+        self._anim_group = None
+        self._typewriter_enabled = enable_typewriter
+        self._typewriter_timer = QTimer(self)
+        self._typewriter_timer.timeout.connect(self._type_next_char)
+        self._typed_text = ""  # 已打出的文字
+        self._buffer_text = ""  # 等待打出的文字（流式累积）
 
         # ── 布局 ──────────────────────────────────────────────────────────────
         outer = QHBoxLayout(self)
@@ -149,9 +166,9 @@ class ChatBubble(QFrame):
         self.bubble.setMaximumWidth(max_width)
         self.bubble.setStyleSheet(f"""
             QFrame#bubble {{
-                background: {cfg['bg']};
-                border: 1px solid {cfg['border']};
-                border-radius: {cfg['radius']};
+                background: {cfg["bg"]};
+                border: 1px solid {cfg["border"]};
+                border-radius: {cfg["radius"]};
             }}
         """)
 
@@ -161,13 +178,28 @@ class ChatBubble(QFrame):
 
         # 角色标签
         if cfg["label"]:
+            role_lbl_h = QHBoxLayout()
+            role_lbl_h.setSpacing(4)
+            role_lbl_h.setContentsMargins(0, 0, 0, 0)
+
+            if cfg.get("label_icon"):
+                role_icon = QLabel()
+                role_icon.setPixmap(
+                    Icons.colored_pixmap(
+                        cfg["label_icon"], cfg["label_color"], IconSize.XS
+                    )
+                )
+                role_lbl_h.addWidget(role_icon)
+
             role_lbl = QLabel(cfg["label"])
             role_lbl.setStyleSheet(
                 f"font-size: 10px; color: {cfg['label_color']};"
                 f"font-weight: 700; letter-spacing: 1px;"
                 f"background: transparent; font-family: {T.FONT};"
             )
-            inner.addWidget(role_lbl)
+            role_lbl_h.addWidget(role_lbl)
+            role_lbl_h.addStretch()
+            inner.addLayout(role_lbl_h)
 
         # 内容视图
         self.text_view = QTextBrowser()
@@ -200,6 +232,70 @@ class ChatBubble(QFrame):
             self._adjust_height()
 
     # ══════════════════════════════════════════════════════════════════════════
+    # 动画 & 打字机
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ChatBubble.py - play_entrance_animation 方法修改
+    def play_entrance_animation(self):
+        # 确保已显示
+        self.show()
+
+        # ✅ 使用 QGraphicsOpacityEffect 替代 windowOpacity
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+
+        self._opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._opacity_effect)
+        self._opacity_effect.setOpacity(0.0)
+
+        # 透明度动画（作用于 effect 而非 widget）
+        self._opacity_anim = QPropertyAnimation(self._opacity_effect, b"opacity", self)
+        self._opacity_anim.setDuration(180)
+        self._opacity_anim.setStartValue(0.0)
+        self._opacity_anim.setEndValue(1.0)
+        self._opacity_anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        # ✅ 位移动画改用 margin 动画（兼容布局管理器）
+        self._margin_anim = QPropertyAnimation(self, b"contentsMargins", self)
+        self._margin_anim.setDuration(180)
+        self._margin_anim.setStartValue((0, 40, 0, 0))  # 顶部预留 40px
+        self._margin_anim.setEndValue((0, 0, 0, 0))
+        self._margin_anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        # 并行执行
+        self._anim_group = QParallelAnimationGroup(self)
+        self._anim_group.addAnimation(self._opacity_anim)
+        self._anim_group.addAnimation(self._margin_anim)
+        self._anim_group.finished.connect(self._on_entrance_finished)
+        self._anim_group.start()
+
+    def _on_entrance_finished(self):
+        """入场动画结束，如果是 AI 且未开始打字，则启动打字机"""
+        if self._role in ("ai", "assistant") and self._typewriter_enabled:
+            self._start_typewriter()
+
+    def _start_typewriter(self):
+        """启动打字机效果"""
+        if not self._typewriter_timer.isActive():
+            self._typed_text = ""
+            self._typewriter_timer.start(15)  # 每 15ms 输出一个字符
+
+    def _type_next_char(self):
+        if not self._buffer_text:
+            # 如果缓冲区空了，检查是否有内容在流式输入中，没有则停止
+            if not self._tts_started:  # 简单判断：TTS 停了通常流也停了
+                self._typewriter_timer.stop()
+            return
+
+        # 取出一个字符
+        char = self._buffer_text[0]
+        self._buffer_text = self._buffer_text[1:]
+        self._typed_text += char
+
+        # 渲染当前已打出的文字
+        self.text_view.setHtml(md_to_html(self._typed_text))
+        self._adjust_height()
+
+    # ══════════════════════════════════════════════════════════════════════════
     # 内容渲染
     # ══════════════════════════════════════════════════════════════════════════
 
@@ -223,22 +319,29 @@ class ChatBubble(QFrame):
 
     def append_chunk(self, chunk: str) -> None:
         """
-        追加一个流式 token，同时驱动 TTS（如已启用）。
-        必须在主线程调用。
+        追加一个流式 token，同时驱动 TTS 和 打字机。
         """
         self._content += chunk
-        self._render()
-        cursor = self.text_view.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        self.text_view.setTextCursor(cursor)
-        self._adjust_height()
 
+        if self._typewriter_enabled and self._typewriter_timer.isActive():
+            # 打字机模式：存入缓冲区，等待定时器消费
+            self._buffer_text += chunk
+        else:
+            # 非打字机模式（或用户消息）：直接渲染
+            self._render()
+            cursor = self.text_view.textCursor()
+            cursor.movePosition(QTextCursor.End)
+            self.text_view.setTextCursor(cursor)
+            self._adjust_height()
+
+        # 驱动 TTS
         if self._tts_capable and self._tts_started:
             self._feed_tts_token(chunk)
 
     def set_content(self, text: str) -> None:
         """非流式场景：一次性设置完整内容。"""
         self._content = text
+        self._buffer_text = text  # 如果启用了打字机，从这里开始打
         self._render()
         self._adjust_height()
 
@@ -247,30 +350,22 @@ class ChatBubble(QFrame):
     # ══════════════════════════════════════════════════════════════════════════
 
     def start_tts(self) -> None:
-        """
-        启动 TTS 线程。
-        幂等：重复调用无副作用。
-        环境变量 DASHSCOPE_API_KEY 缺失时静默跳过。
-        """
         if not self._tts_capable or self._tts_started:
             return
-
         api_key = os.getenv("DASHSCOPE_API_KEY", "").strip()
         if not api_key:
-            return  # 无 key，静默跳过
+            return
 
-        # 延迟导入，避免在未安装语音依赖的环境中启动失败
         try:
             from service.voice_sdk.audio.player import StreamingAudioPlayer
             from service.voice_sdk.tts.pipeline import stream_interview_tts_from_tokens
         except ImportError:
             return
 
-        self._tts_queue  = queue.Queue()
-        self._tts_player = StreamingAudioPlayer()
-        self._tts_last_token     = ""
+        self._tts_queue = queue.Queue()
+        self._tts_last_token = ""
         self._tts_sentence_cache = []
-        self._tts_last_sentence  = ""
+        self._tts_last_sentence = ""
 
         def _token_iter():
             assert self._tts_queue is not None
@@ -281,6 +376,7 @@ class ChatBubble(QFrame):
                 yield token
 
         def _runner():
+            self._tts_player = StreamingAudioPlayer()
             try:
                 stream_interview_tts_from_tokens(
                     token_stream=_token_iter(),
@@ -306,67 +402,67 @@ class ChatBubble(QFrame):
         self._tts_started = True
 
     def stop_tts(self, force: bool = False) -> None:
-        """
-        停止 TTS。
-
-        force=False（默认）：发送结束哨兵，等待当前句子播完（最多 8 s）。
-        force=True         ：立即终止，可能截断最后一句。
-        """
         if not self._tts_started:
             return
 
-        if self._tts_queue is not None:
-            try:
-                self._tts_queue.put(None)
-            except Exception:
-                pass
+        # 停止打字机
+        if self._typewriter_timer.isActive():
+            # 把剩余缓冲区全部打出
+            self._typed_text += self._buffer_text
+            self._buffer_text = ""
+            self._render()
+            self._adjust_height()
+            self._typewriter_timer.stop()
 
-        if self._tts_thread and self._tts_thread.is_alive():
-            timeout = 2.0 if force else 8.0
-            self._tts_thread.join(timeout=timeout)
-            if self._tts_thread.is_alive() and not force:
-                # 仍在合成中，非强制模式不关闭播放器，避免截断
-                return
-
-        if self._tts_player is not None:
-            try:
-                self._tts_player.close()
-                # TODO: 这里的等待有点卡卡卡的感觉
-                self._tts_player.join(timeout=2.0)
-            except Exception:
-                pass
-
-        self._reset_tts_state()
+        if force:
+            if self._tts_queue is not None:
+                try:
+                    self._tts_queue.put(None)
+                except Exception:
+                    pass
+            if self._tts_player is not None:
+                try:
+                    self._tts_player.close()
+                except Exception:
+                    pass
+            self._reset_tts_state()
+        else:
+            if self._tts_queue is not None:
+                try:
+                    self._tts_queue.put(None)
+                except Exception:
+                    pass
+            self._tts_started = False
 
     def _reset_tts_state(self) -> None:
-        self._tts_queue   = None
-        self._tts_thread  = None
-        self._tts_player  = None
+        self._tts_queue = None
+        self._tts_thread = None
+        self._tts_player = None
         self._tts_started = False
-        self._tts_last_token     = ""
+        self._tts_last_token = ""
         self._tts_sentence_cache = []
-        self._tts_last_sentence  = ""
+        self._tts_last_sentence = ""
 
     # ══════════════════════════════════════════════════════════════════════════
     # TTS 内部实现
     # ══════════════════════════════════════════════════════════════════════════
 
     def _feed_tts_token(self, token: str) -> None:
-        """向 TTS 队列投递 token（含去重逻辑）。"""
         if self._tts_queue is None:
             return
-
         token_text = str(token or "").strip("\r")
         if not token_text:
             return
 
-        # 去重 1：连续重复 token
         if token_text == self._tts_last_token:
             return
 
-        # 去重 2：完整句子在短窗口内重复
         stripped = token_text.strip()
-        if stripped and stripped[-1] in {"。", "！", "？", ".", "!", "?", "\n"} and len(stripped) > 3:
+        if (
+            stripped
+            and stripped[-1] in {"。", "！", "？", ".", "!", "?", "\n"}
+            and len(stripped) > 3
+        ):
             if stripped in self._tts_sentence_cache:
                 self._tts_last_token = token_text
                 return
@@ -378,7 +474,6 @@ class ChatBubble(QFrame):
         self._tts_queue.put(token_text)
 
     def _on_tts_audio_chunk(self, audio_chunk: bytes, sentence: str) -> None:
-        """TTS 回调：将音频块交给播放器（从 TTS 线程调用）。"""
         if not audio_chunk:
             return
         if sentence != self._tts_last_sentence:

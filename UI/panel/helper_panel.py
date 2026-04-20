@@ -1,40 +1,38 @@
 """
-AI 知识助手面板（组件化重构版）。
+AI 知识助手面板（ChatArea 解耦重构版）。
 
 架构说明：
-  - UI 组件：ChatInputBar / ChatBubble / TypingIndicator
-  - 业务流：仅负责信号路由、流式对话编排、工具状态同步
-  - TTS：完全由 ChatBubble 内部承接，面板零感知
-  - Footer：顶部 10px 为拖拽热区，拖拽条严格跟随鼠标移动
+  - ChatArea 组件独立封装聊天渲染、滚动、TypingIndicator、TTS 状态
+  - 面板仅负责信号路由、流式对话编排、工具状态同步
+  - TTS 与滚动逻辑完全交由 ChatArea 内部接管，面板零感知
 """
 
 import threading
 
 from PySide6.QtWidgets import (
-    QPushButton, QVBoxLayout, QHBoxLayout,
-    QLabel, QScrollArea, QWidget, QFrame,
+    QPushButton,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QFrame,
+    QWidget,
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QMouseEvent
 
-from UI.components import (
-    T, ChatBubble, TypingIndicator, StreamSignals,
-    ButtonFactory, GLOBAL_QSS, input_qss,
-)
-from UI.components.chat_input_bar import ChatInputBar
+from UI.components import T, StreamSignals, ButtonFactory, GLOBAL_QSS, input_qss
 from UI.components.footer import Footer
+from UI.components.chat_area import ChatArea
+from UI.components.info.icon import Icons, IconSize
 
 # ── 快捷提示 ──────────────────────────────────────────────────────────────────
 HINTS = [
-    ("🎲", "随机抽题", "从题库随机抽5道题", T.NEON),
-    ("🔍", "搜索题目", "搜索 Redis 相关题目", T.PURPLE),
-    ("📊", "题库统计", "查看题库分类统计", T.YELLOW),
-    ("🌐", "联网搜索", "搜索 Spring Boot 3.0 新特性", T.GREEN),
-    ("📚", "知识检索", "什么是 MVCC？", T.NEON),
-    ("🏆", "历史记录", "查看学生ID=1的面试记录", T.ACCENT),
+    ("shuffle", "随机抽题", "从题库随机抽5道题", T.NEON),
+    ("search", "搜索题目", "搜索 Redis 相关题目", T.PURPLE),
+    ("bar_chart", "题库统计", "查看题库分类统计", T.YELLOW),
+    ("travel", "联网搜索", "搜索 Spring Boot 3.0 新特性", T.GREEN),
+    ("library", "知识检索", "什么是 MVCC？", T.NEON),
+    ("history", "历史记录", "查看学生ID=1的面试记录", T.ACCENT),
 ]
-
-
 
 
 class HelperPanel(QWidget):
@@ -42,12 +40,11 @@ class HelperPanel(QWidget):
         super().__init__(parent)
         self.agent = agent
 
-        # 流式信号中枢
+        # 流式信号中枢（保持跨线程安全）
         self._stream_signals = StreamSignals()
-        self._current_ai_bubble: ChatBubble | None = None
-        self._typing_indicator: TypingIndicator | None = None
         self._is_streaming = False
 
+        # 信号路由至 ChatArea
         self._stream_signals.chunk_received.connect(self._on_chunk)
         self._stream_signals.stream_done.connect(self._on_stream_done)
         self._stream_signals.stream_error.connect(self._on_stream_error)
@@ -55,50 +52,80 @@ class HelperPanel(QWidget):
         self._build_ui()
         self._bind_footer_signals()
 
+        # 初始化欢迎语（复用 ChatArea 的系统消息通道）
+        self.chat_area.add_system_message(
+            "你好！我是 **AI 知识助手** 🤖\n\n"
+            "我可以帮你：\n"
+            "- 🎲 随机抽题练习\n"
+            "- 🔍 搜索题目和查看答案\n"
+            "- 📊 题库统计与分析\n"
+            "- 🌐 联网搜索最新技术资料\n"
+            "- 📚 知识库技术概念检索\n"
+            "- 🏆 查看历史面试记录\n\n"
+            "点击上方快捷按钮，或直接输入问题开始！"
+        )
+
     # ── 信号绑定 ──────────────────────────────────────────────────────────────
     def _bind_footer_signals(self) -> None:
         self.footer.send_requested.connect(self._send)
         self.footer.asr_finished.connect(self._on_asr_transcript)
         self.footer.status_changed.connect(lambda s: self._tool_status.setText(s))
+
     def _on_asr_transcript(self, text: str) -> None:
         if text:
             self.footer.set_input_text(text)
-            self._send()  # 自动提交，若需手动确认可注释此行
+            self._send()  # 自动提交
+
     # ── UI 构建 ───────────────────────────────────────────────────────────────
     def _build_ui(self) -> None:
         self.setStyleSheet(GLOBAL_QSS + input_qss())
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root.setSpacing(8)
 
         root.addWidget(self._build_header())
         root.addWidget(self._build_hints())
-        root.addWidget(self._build_chat_area(), stretch=1)
-        self.footer = Footer(min_height=160, max_height=400)  # 👈 替换原 QFrame
+
+        # ✅ 替换原手动构建的 QScrollArea + ChatBubble/TypingIndicator
+        self.chat_area = ChatArea()
+        root.addWidget(self.chat_area, stretch=1)
+
+        self.footer = Footer(min_height=160, max_height=400)
         root.addWidget(self.footer)
 
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setFixedHeight(56)
-        header.setStyleSheet(f"QFrame {{ background: {T.SURFACE}; border-bottom: 1px solid {T.BORDER}; }}")
+        header.setStyleSheet(
+            f"QFrame {{ background: {T.SURFACE}; border-bottom: 1px solid {T.BORDER}; }}"
+        )
         lay = QHBoxLayout(header)
         lay.setContentsMargins(22, 0, 22, 0)
 
-        title = QLabel("🤖  AI 知识助手")
-        title.setStyleSheet(f"font-size: 16px; font-weight: 800; color: {T.TEXT}; font-family: {T.FONT};")
+        title_icon = QLabel()
+        title_icon.setPixmap(Icons.colored_pixmap("smart_toy", T.NEON, IconSize.MD))
+        title = QLabel("AI 知识助手")
+        title.setStyleSheet(
+            f"font-size: 16px; font-weight: 800; color: {T.TEXT}; font-family: {T.FONT};"
+        )
+        title_h = QHBoxLayout()
+        title_h.setSpacing(8)
+        title_h.addWidget(title_icon)
+        title_h.addWidget(title)
 
         self._tool_status = QLabel()
         self._refresh_tool_status()
         self._tool_status.setStyleSheet(f"""
             font-size: 11px; color: {T.GREEN}; font-weight: 600;
-            background: {T.GREEN}11; border: 1px solid {T.GREEN}33;
-            border-radius: 10px; padding: 2px 10px;
+            background: transparent; 
         """)
 
-        clear_btn = ButtonFactory.ghost("清空对话")
+        clear_btn = ButtonFactory.ghost(
+            "清空对话", icon_name="cleaning", icon_size=IconSize.SM
+        )
         clear_btn.clicked.connect(self._clear)
 
-        lay.addWidget(title)
+        lay.addLayout(title_h)
         lay.addStretch()
         lay.addWidget(self._tool_status)
         lay.addSpacing(12)
@@ -108,84 +135,50 @@ class HelperPanel(QWidget):
     def _build_hints(self) -> QFrame:
         frame = QFrame()
         frame.setFixedHeight(52)
-        frame.setStyleSheet(f"QFrame {{ background: {T.SURFACE2}; border-bottom: 1px solid {T.BORDER}; }}")
+        frame.setStyleSheet(
+            f"QFrame {{ background: {T.SURFACE2}; border-bottom: 1px solid {T.BORDER}; }}"
+        )
         lay = QHBoxLayout(frame)
         lay.setContentsMargins(18, 10, 18, 10)
         lay.setSpacing(8)
 
-        for icon, label, tooltip, color in HINTS:
-            btn = ButtonFactory.tag(f"{icon} {label}", color)
+        for icon_name, label, tooltip, color in HINTS:
+            btn = ButtonFactory.tag(
+                label, color, icon_name=icon_name, icon_size=IconSize.SM
+            )
             btn.setToolTip(tooltip)
             btn.clicked.connect(lambda checked, t=tooltip: self._quick_send(t))
             lay.addWidget(btn)
         lay.addStretch()
         return frame
 
-    def _build_chat_area(self) -> QScrollArea:
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QFrame.NoFrame)
-        self._scroll.setStyleSheet(f"QScrollArea {{ background: {T.BG}; border: none; }}")
-
-        self._chat_widget = QWidget()
-        self._chat_widget.setStyleSheet(f"background: {T.BG};")
-        self._chat_layout = QVBoxLayout(self._chat_widget)
-        self._chat_layout.setContentsMargins(20, 18, 20, 10)
-        self._chat_layout.setSpacing(10)
-        self._chat_layout.addStretch()
-
-        welcome = ChatBubble(
-            "assistant",
-            "你好！我是 **AI 知识助手** 🤖\n\n"
-            "我可以帮你：\n"
-            "- 🎲 随机抽题练习\n"
-            "- 🔍 搜索题目和查看答案\n"
-            "- 📊 题库统计与分析\n"
-            "- 🌐 联网搜索最新技术资料\n"
-            "- 📚 知识库技术概念检索\n"
-            "- 🏆 查看历史面试记录\n\n"
-            "点击上方快捷按钮，或直接输入问题开始！",
-        )
-        self._chat_layout.insertWidget(0, welcome)
-        self._scroll.setWidget(self._chat_widget)
-        return self._scroll
-
-    # ── 消息逻辑 ──────────────────────────────────────────────────────────────
+    # ── 业务逻辑 ──────────────────────────────────────────────────────────────
     def _refresh_tool_status(self) -> None:
         count = (
             len(self.agent.get_registered_tools())
-            if hasattr(self.agent, "get_registered_tools") else 8
+            if hasattr(self.agent, "get_registered_tools")
+            else 8
         )
         self._tool_status.setText(f"● {count} 个工具就绪")
 
-    # ── 消息逻辑 ──────────────────────────────────────────────────────────────
     def _quick_send(self, text: str) -> None:
         self.footer.set_input_text(text)
         self._send()
 
     def _send(self) -> None:
         if self._is_streaming:
-           return
-        # 从 footer 获取文本并清空
+            return
         text = self.footer.input_bar.text_edit.toPlainText().strip()
         if not text:
             return
         self.footer.clear_input()
-        self._add_user_bubble(text)
+        self.chat_area.add_user_message(text)  # ✅ 替代原 _add_user_bubble
         self._start_stream(text)
-
-    def _add_user_bubble(self, text: str) -> None:
-        bubble = ChatBubble("user", text)
-        self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
-        self._scroll_bottom()
 
     def _start_stream(self, text: str) -> None:
         self._is_streaming = True
         self._set_input_enabled(False)
-
-        self._typing_indicator = TypingIndicator()
-        self._chat_layout.insertWidget(self._chat_layout.count() - 1, self._typing_indicator)
-        self._scroll_bottom()
+        self.chat_area.show_typing_indicator()  # ✅ 替代原手动创建 TypingIndicator
 
         def _run() -> None:
             try:
@@ -198,55 +191,30 @@ class HelperPanel(QWidget):
         threading.Thread(target=_run, daemon=True).start()
 
     def _on_chunk(self, chunk: str) -> None:
-        if self._typing_indicator is not None:
-            self._chat_layout.removeWidget(self._typing_indicator)
-            self._typing_indicator.stop()
-            self._typing_indicator.deleteLater()
-            self._typing_indicator = None
-
-        if self._current_ai_bubble is None:
-            self._current_ai_bubble = ChatBubble("assistant", enable_tts=True)
-            self._current_ai_bubble.start_tts()
-            self._chat_layout.insertWidget(self._chat_layout.count() - 1, self._current_ai_bubble)
-
-        self._current_ai_bubble.append_chunk(chunk)
-        self._scroll_bottom()
+        self.chat_area.hide_typing_indicator()  # ✅
+        self.chat_area.ensure_ai_bubble(
+            enable_tts=True
+        )  # ✅ 内部接管气泡创建与 TTS 标记
+        self.chat_area.append_ai_chunk(chunk)  # ✅
 
     def _on_stream_done(self) -> None:
-        if self._current_ai_bubble is not None:
-            self._current_ai_bubble.stop_tts()
-        self._current_ai_bubble = None
+        self.chat_area.stop_ai_stream()  # ✅ 内部接管 TTS 停止与流状态清理
         self._is_streaming = False
         self._set_input_enabled(True)
         self.footer.input_bar.text_edit.setFocus()
 
     def _on_stream_error(self, msg: str) -> None:
-        if self._typing_indicator is not None:
-            self._chat_layout.removeWidget(self._typing_indicator)
-            self._typing_indicator.stop()
-            self._typing_indicator.deleteLater()
-            self._typing_indicator = None
-
-        if self._current_ai_bubble is not None:
-            self._current_ai_bubble.stop_tts(force=True)
-
-        err_bubble = ChatBubble("assistant", f"❌ 出错了：{msg}")
-        self._chat_layout.insertWidget(self._chat_layout.count() - 1, err_bubble)
-        self._current_ai_bubble = None
+        self.chat_area.hide_typing_indicator()
+        self.chat_area.stop_ai_stream(force=True)  # ✅ 强制中断
+        self.chat_area.add_system_message(f"❌ 出错了：{msg}")
         self._is_streaming = False
         self._set_input_enabled(True)
 
     def _clear(self) -> None:
-        while self._chat_layout.count() > 1:
-            item = self._chat_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self.chat_area.clear()  # ✅ 替代原布局遍历删除
         self.agent.clear_conversation()
-
-    def _scroll_bottom(self) -> None:
-        QTimer.singleShot(60, lambda: self._scroll.verticalScrollBar().setValue(
-            self._scroll.verticalScrollBar().maximum()
-        ))
+        # 可选：清空后重新显示欢迎语
+        # self.chat_area.add_system_message("对话已清空，请重新开始提问...")
 
     def _set_input_enabled(self, enabled: bool) -> None:
         self.footer.set_enabled(enabled)

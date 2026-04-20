@@ -19,7 +19,7 @@ def _inline_md(text: str) -> str:
     # 行内代码
     text = re.sub(
         r"`([^`]+)`",
-        rf'<code style="background:{T.SURFACE3};color:{T.GREEN};'
+        rf'<code style="background:{T.SURFACE};color:{T.SUCCESS};'
         rf'padding:1px 4px;border-radius:3px;'
         rf'font-family:{T.FONT_MONO};font-size:12px;">\1</code>',
         text,
@@ -33,7 +33,7 @@ def _inline_md(text: str) -> str:
     # 链接
     text = re.sub(
         r"\[(.+?)\]\((.+?)\)",
-        rf'<a href="\2" style="color:{T.NEON};">\1</a>',
+        rf'<a href="\2" style="color:{T.INFO};">\1</a>',
         text,
     )
     return text
@@ -67,9 +67,9 @@ def md_to_html(text: str) -> str:
                 i += 1
             i += 1  # 跳过结束 ```
             html_parts.append(
-                f'<pre style="background:{T.SURFACE3};border:1px solid {T.BORDER2};'
+                f'<pre style="background:{T.SURFACE};border:1px solid {T.BORDER};'
                 f'border-radius:6px;padding:10px 12px;margin:6px 0;'
-                f'font-family:{T.FONT_MONO};font-size:12px;color:{T.GREEN};'
+                f'font-family:{T.FONT_MONO};font-size:12px;color:{T.SUCCESS};'
                 f'white-space:pre-wrap;word-break:break-all;">'
                 + "\n".join(code_lines)
                 + "</pre>"
@@ -94,14 +94,14 @@ def md_to_html(text: str) -> str:
             for row_idx, row in enumerate(data_rows):
                 cells = [c.strip() for c in row.strip().strip("|").split("|")]
                 tag  = "th" if row_idx == 0 else "td"
-                bg   = (T.SURFACE3 if row_idx == 0
-                        else (T.SURFACE if row_idx % 2 == 1 else T.SURFACE2))
-                color = T.NEON if row_idx == 0 else T.TEXT
+                bg   = (T.SURFACE if row_idx == 0
+                        else (T.SURFACE if row_idx % 2 == 1 else T.SURFACE))
+                color = T.INFO if row_idx == 0 else T.TEXT
                 weight = "700" if row_idx == 0 else "400"
                 html_parts.append("<tr>")
                 for cell in cells:
                     html_parts.append(
-                        f'<{tag} style="border:1px solid {T.BORDER2};padding:6px 10px;'
+                        f'<{tag} style="border:1px solid {T.BORDER};padding:6px 10px;'
                         f'background:{bg};color:{color};font-weight:{weight};">'
                         f"{_inline_md(cell)}</{tag}>"
                     )
@@ -114,7 +114,7 @@ def md_to_html(text: str) -> str:
         if m:
             level   = len(m.group(1))
             size    = {1: "18px", 2: "16px", 3: "14px", 4: "13px"}.get(level, "14px")
-            color   = {1: T.NEON, 2: T.NEON, 3: T.TEXT, 4: T.TEXT_DIM}.get(level, T.TEXT)
+            color   = {1: T.INFO, 2: T.INFO, 3: T.TEXT, 4: T.TEXT_DIM}.get(level, T.TEXT)
             content = _inline_md(m.group(2))
             html_parts.append(
                 f'<p style="font-size:{size};font-weight:700;color:{color};'
@@ -150,7 +150,7 @@ def md_to_html(text: str) -> str:
         # ── 分割线 ────────────────────────────────────────────────────────────
         if re.match(r"^[-_\*]{3,}$", line.strip()):
             html_parts.append(
-                f'<hr style="border:none;border-top:1px solid {T.BORDER2};margin:8px 0;">'
+                f'<hr style="border:none;border-top:1px solid {T.BORDER};margin:8px 0;">'
             )
             i += 1
             continue

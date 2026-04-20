@@ -10,19 +10,19 @@ from UI.components.info.Theme import T
 
 
 class ChartCard(QFrame):
-    """带投影的暗色卡片，直接添加子 layout 即可使用。"""
+    """带投影的卡片，可自定义背景颜色。"""
 
-    def __init__(self, parent=None):
+    def __init__(self, bg_color: str = None, parent=None):
         super().__init__(parent)
+        bg = bg_color or T.SURFACE3
         self.setStyleSheet(f"""
             QFrame {{
-                background: {T.SURFACE};
-                border: 1px solid {T.BORDER};
+                background: {bg};
                 border-radius: 12px;
             }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(18)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        shadow.setOffset(0, 4)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(T.SURFACE3_DARK))
+        shadow.setOffset(0, 0)
         self.setGraphicsEffect(shadow)

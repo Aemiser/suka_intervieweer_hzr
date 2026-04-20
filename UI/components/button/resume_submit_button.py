@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
 )
 from ..ButtonFactory import ButtonFactory, T
+from UI.components.info.icon import Icons, IconSize
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -140,8 +141,9 @@ class ResumeSubmitButton(QWidget):
         info_lay.setSpacing(10)
 
         # 文件图标
-        self.lbl_icon = QLabel("📄")
-        self.lbl_icon.setStyleSheet("font-size: 20px;")
+        self.lbl_icon = QLabel()
+        self.lbl_icon.setPixmap(Icons.pixmap("upload", IconSize.MD))
+        self.lbl_icon.setStyleSheet("background: transparent;")
         info_lay.addWidget(self.lbl_icon)
 
         # 文件信息
@@ -168,8 +170,10 @@ class ResumeSubmitButton(QWidget):
         info_lay.addLayout(info_text_lay, stretch=1)
 
         # 移除文件按钮
-        self.btn_remove = ButtonFactory.ghost("移除", height=28)
-        self.btn_remove.setFixedWidth(60)
+        self.btn_remove = ButtonFactory.ghost(
+            "移除", height=28, icon_name="delete", icon_size=IconSize.SM
+        )
+        self.btn_remove.setFixedWidth(80)
         self.btn_remove.clicked.connect(self._on_remove_file)
         info_lay.addWidget(self.btn_remove)
 
@@ -186,7 +190,7 @@ class ResumeSubmitButton(QWidget):
                 text-align: center;
             }}
             QProgressBar::chunk {{
-                background: {T.NEON};
+                background: {T.INFO};
                 border-radius: 3px;
             }}
         """)
@@ -212,13 +216,25 @@ class ResumeSubmitButton(QWidget):
 
         # 选择文件按钮
         self.btn_select = ButtonFactory.solid(
-            "选择简历", T.TEXT_DIM, height=42, width=120
+            "选择简历",
+            T.TEXT_DIM,
+            height=42,
+            width=120,
+            icon_name="upload",
+            icon_size=IconSize.SM,
         )
         self.btn_select.clicked.connect(self._on_select_file)
         btn_lay.addWidget(self.btn_select)
 
         # 投递按钮（主操作）
-        self.btn_submit = ButtonFactory.solid("投递简历", T.NEON, height=42, width=120)
+        self.btn_submit = ButtonFactory.solid(
+            "投递简历",
+            T.INFO,
+            height=42,
+            width=120,
+            icon_name="send",
+            icon_size=IconSize.SM,
+        )
         self.btn_submit.setEnabled(False)
         self.btn_submit.clicked.connect(self._on_submit_clicked)
         btn_lay.addWidget(self.btn_submit)
@@ -271,7 +287,7 @@ class ResumeSubmitButton(QWidget):
         self.lbl_file_size.setText(f"大小: {size_str}")
         self.info_frame.setVisible(True)
         self.btn_submit.setEnabled(True)
-        self.btn_select.setText("📁 更换简历")
+        self.btn_select.setText("更换简历")
 
         self.status_changed.emit(f"已选择: {file_name}")
         self._set_state("selected")
@@ -295,7 +311,7 @@ class ResumeSubmitButton(QWidget):
         self.lbl_file_size.setText("")
         self.info_frame.setVisible(False)
         self.btn_submit.setEnabled(False)
-        self.btn_select.setText("📁 选择简历")
+        self.btn_select.setText("选择简历")
 
         self.status_changed.emit("已移除简历文件")
         self._set_state("idle")
@@ -382,7 +398,7 @@ class ResumeSubmitButton(QWidget):
         self.status_changed.emit(f"投递失败: {error_msg}")
 
         QMessageBox.critical(
-            self, "投递失败", f"❌ 简历投递失败:\n{error_msg}\n\n请检查文件后重试。"
+            self, "投递失败", f"简历投递失败:\n{error_msg}\n\n请检查文件后重试。"
         )
 
     def _thread_finished(self) -> None:
